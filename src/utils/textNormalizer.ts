@@ -1,5 +1,5 @@
 import path from "path";
-import { PDFParse, pdf } from 'pdf-parse';
+import pdf from 'pdf-parse';
 import mammoth from "mammoth";
 import { readFile } from 'node:fs/promises';
 

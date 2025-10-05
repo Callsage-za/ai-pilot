@@ -101,10 +101,12 @@ async getPolicyTree(documentId: string) {
     const byId = new Map(rows.map(r => [r.sectionId, { ...r, children: [] as any[] }]));
     const roots: any[] = [];
     for (const r of byId.values()) {
-        if (r.parentId && byId.has(r.parentId)) {
-            byId.get(r.parentId)!.children.push(r);
+        const record = r as any;
+        if (record.parentId && byId.has(record.parentId)) {
+            const parent = byId.get(record.parentId) as any;
+            parent.children.push(record);
         } else {
-            roots.push(r);
+            roots.push(record);
         }
     }
     return { documentId, version: policy.version, sections: roots };
