@@ -318,7 +318,7 @@ export class SpeechService {
             let result;
             if (this.isAudioFile(file.mimetype)) {
                 console.log('Processing as audio file...');
-                // result = await this.callSpeech(filePath);
+                result = await this.callSpeech(filePath);
             } else if (this.isDocumentFile(file.mimetype)) {
                 console.log('Processing as document file...');
                 // result = await this.processDocument(filePath);
