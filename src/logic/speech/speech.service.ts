@@ -20,8 +20,8 @@ export class SpeechService {
         private readonly jiraTicketsService: JiraTicketsService
     ) {
         this.client = new SpeechClient({
-            keyFilename: this.configService.get('GOOGLE_APPLICATION_CREDENTIALS'),
-        });
+            keyFilename: this.configService.get('AUTH_PATH'),
+        }); 
     }
     async getAudioConfig(filePath: string) {
         const metadata = await parseFile(filePath);
