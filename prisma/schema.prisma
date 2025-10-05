@@ -1,0 +1,111 @@
+// prisma/schema.prisma
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Conversation {
+  id        String    @id @default(cuid())
+  userId    String
+  summary   String?
+  createdAt DateTime  @default(now())
+  messages  Message[]
+  facts     MemoryFact[]
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  role           String       // 'user' | 'assistant' | 'system'
+  content        String
+  ts             DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, ts])
+}
+
+model MemoryFact {
+  id             String       @id @default(cuid())
+  conversationId String
+  key            String
+  value          String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, key])
+}
+
+
+model Policy {
+  id          String   @id @default(cuid())
+  documentId  String   @unique           // e.g. "CC-PROF-2025"
+  version     String                     // e.g. "1.0"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  sections    PolicySection[]
+}
+
+model PolicySection {
+  id          String   @id @default(cuid())
+  policyId    String
+  sectionId   String                     // dotted id, e.g. "3.2"
+  parentId    String?                    // dotted parent id, e.g. "3" or null
+  level       Int
+  title       String
+  exactText   String                     // VERBATIM text for this section
+  sha256      String                     // checksum of exactText
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  policy      Policy   @relation(fields: [policyId], references: [id])
+
+  @@unique([policyId, sectionId])       // one row per (policy, section)
+  @@index([policyId, parentId])
+  @@index([policyId, level, sectionId])
+}
+
+
+
+
+model Call {
+  id               String   @id @default(cuid())
+  callId           String   @unique
+  startedAt        DateTime
+  endedAt          DateTime?
+  durationSec      Int?
+  agentId          String?
+  customerId       String?
+
+  // Storage
+  transcriptText   String?
+  transcriptUri    String?
+  transcriptSha256 String?
+  language         String?
+
+  // NLP
+  summary          String?
+  classification   String?     // "complaint" | "compliment" | "other"
+  sentiment        String?     // "negative" | "neutral" | "positive"
+  severity         String?     // "low" | "medium" | "high"
+
+  // ↓ These were arrays/objects — use Json in SQLite
+  intentsJson      Json?       // e.g. ["billing_inquiry","refund_request"]
+  entities         Json?       // { account_id, ... }
+  evidence         Json?       // [{ speaker, text, start_ms, end_ms }]
+  classifierConf   Float?
+
+  policyAudit      Json?       // overall + findings
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([startedAt])
+  @@index([agentId])
+  @@index([customerId])
+  @@index([classification, severity])
+}
+
