@@ -9,7 +9,8 @@ async function bootstrap() {
     origin: ['http://localhost:3000',
       'http://localhost:8080',
       'http://localhost:8081',
-      'http://localhost:5173'], // Add your frontend URLs
+      'http://localhost:5173',
+      'https://callsage.balanceapp.co.za'], // Add your frontend URLs
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
     credentials: false,

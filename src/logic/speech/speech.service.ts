@@ -141,7 +141,6 @@ export class SpeechService {
             transcript: transcription,
             minConfidence: 0.6
         });
-        console.log("classification", classification);
 
         this.callsService.saveCallLocallyAndIndex({
             callId: uuidv4(),
