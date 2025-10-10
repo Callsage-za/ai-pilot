@@ -11,8 +11,8 @@ describe('JiraTicketsController', () => {
 
     controller = module.get<JiraTicketsController>(JiraTicketsController);
   });
-
-  it('should be defined', () => {
+ 
+  it('should be defined', () => {  
     expect(controller).toBeDefined();
   });
 });

@@ -11,6 +11,11 @@ export class JiraTicketsController {
     
     constructor(private readonly jiraTicketsService: JiraTicketsService) { 
     }
+    @Post('jira-update')
+    async jiraUpdate(@Body() body: any) {
+        await this.jiraTicketsService.handleJiraIssue(body.issue,body.key);
+        return { message: "OK" };
+    }
     @Get('getProjects') 
     async getProjects() {
         return this.jiraTicketsService.getProjects();

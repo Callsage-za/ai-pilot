@@ -1,11 +1,27 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { Policy } from "./types";
+import { PolicyDocument } from "src/utils/types";
 
 @Injectable()
 export class PolicyService {
     constructor(private readonly prisma: PrismaService) {
 
+    }
+    async savePolicyDocument(payload: PolicyDocument) {
+        const { id, version ,} = payload;
+
+        return this.prisma.$transaction(async (tx:any) => {
+            const policyDocument = await tx?.policyDocument?.upsert({ where: { id }, update: { version }, create: { ...payload } });
+            // const policy = await tx.policy.upsert({ where: { documentId: id ?? '' }, update: { version }, create: { documentId: id ?? '', version } });
+        });
+    }
+    async getAllPolicyDocuments() {
+       return this.prisma.$transaction(async (tx:any) => {
+            const policyDocuments = await tx?.policyDocument?.findMany();
+            return policyDocuments;
+        });
+       
     }
     async savePolicyFromLLM(payload: Policy) {
         const { document_id, version, sections } = payload;

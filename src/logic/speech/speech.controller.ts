@@ -1,27 +1,35 @@
 import { Controller, Post, Body, UseInterceptors, UploadedFile, UploadedFiles } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { SpeechService } from './speech.service';
+import { FileUploadService } from '../file-upload/file-upload.service';
 
 @Controller('speech')
 export class SpeechController {
-    constructor(private readonly speechService: SpeechService) {}
+    constructor(
+        private readonly speechService: SpeechService,
+        private readonly fileUploadService: FileUploadService
+    ) {}
 
     @Post('callSpeech')
-    async callSpeech(@Body() body: {path: string}) {
-        return this.speechService.callSpeech(body.path);
+    async callSpeech(@Body() body: {path: string,name: string}) {
+        return this.speechService.callSpeech(body.path,body.name);
     }
 
-    @Post('uploadFile')
+    @Post("uploadFile")
     @UseInterceptors(FileInterceptor('file'))
-    async uploadFile(@UploadedFile() file: Express.Multer.File) {
-        console.log('Received file:', {
-            originalname: file.originalname,
-            mimetype: file.mimetype,
-            size: file.size,
-            filename: file.filename,
-            path: file.path
-        });
+    async uploadFile(@UploadedFile() file: Express.Multer.File, @Body() body: { conversationId?: string; messageId?: string }) {
+        // Save file and get ID
+        const { id, externalPath } = await this.fileUploadService.saveFileUpload(file, body.conversationId, body.messageId);
+        return {
+            message: 'File uploaded successfully',
+            id,
+            externalPath
+        };
+    }
 
+    @Post('transcribe')
+    @UseInterceptors(FileInterceptor('file'))
+    async transcribe(@UploadedFile() file: Express.Multer.File) {
         // Process the uploaded file
         const result = await this.speechService.processUploadedFile(file);
 
@@ -37,14 +45,6 @@ export class SpeechController {
     @Post('uploadFiles')
     @UseInterceptors(FilesInterceptor('files', 10)) // Allow up to 10 files
     async uploadFiles(@UploadedFiles() files: Express.Multer.File[]) {
-        console.log('Received files:', files.map(f => ({
-            originalname: f.originalname,
-            mimetype: f.mimetype,
-            size: f.size,
-            filename: f.filename,
-            path: f.path
-        })));
-
         // Process all uploaded files
         const results = await Promise.all(
             files.map(file => this.speechService.processUploadedFile(file))

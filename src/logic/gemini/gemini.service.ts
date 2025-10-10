@@ -104,7 +104,6 @@ export class GeminiService {
                     { role: 'user', parts: [{ text: user }] }
                 ]
             });
-
             return result;
         } catch (err: any) {
             console.error('complete error:', err?.message || err);

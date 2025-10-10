@@ -15,17 +15,95 @@ model Conversation {
   createdAt DateTime  @default(now())
   messages  Message[]
   facts     MemoryFact[]
+  title     String?
+  conversationState Json?
 }
 
+model InfoSource {
+  messageId String
+  type String
+  id String @id @default(cuid())
+  title String
+  snippet String
+  score   Int?
+  confidence Int?
+  message      Message   @relation(fields: [messageId], references: [id])
+  key String?
+
+}
 model Message {
   id             String       @id @default(cuid())
   conversationId String
   role           String       // 'user' | 'assistant' | 'system'
   content        String
   ts             DateTime     @default(now())
+  type           String?
+  source         InfoSource[]
+  path           String?
+  attachments    Json?        // Array of file attachments
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId, ts])
+}
+
+enum AudioClassification {
+  complaint
+  compliment
+  other
+}
+enum AudioSentiment{
+  negative
+  neutral
+  positive
+}
+enum AudioSeverity{
+  low
+  medium
+  high
+}
+
+model AudioEntities{
+  id             String       @id @default(cuid())
+  accountId     String?
+  orderId       String?
+  product       String?
+  audioId       String       @unique
+  audio       AudioFile @relation(fields: [audioId], references: [id])
+}
+model AudioEvidence{
+  id             String       @id @default(cuid())
+  text  String?
+  startMs  String?
+  endMs  String?
+  audioId       String
+  audio       AudioFile @relation(fields: [audioId], references: [id])
+}
+model FileUpload {
+  id             String   @id @default(cuid())
+  localPath      String   // Local file path on server
+  externalPath   String?  // External URL for accessing the file
+  originalName   String   // Original filename from upload
+  fileSize       Int      // File size in bytes
+  mimeType       String   // MIME type of the file
+  isProcessed    Boolean  @default(false)
+  conversationId String?  // Optional conversation ID
+  messageId      String?  // Optional message ID
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model AudioFile {
+  id             String       @id @default(cuid())
+  path           String
+  transcript     String
+  summary        String?
+  classification AudioClassification
+  sentiment      AudioSentiment
+  severity       AudioSeverity
+  resolved       Boolean
+  audioEntity    AudioEntities?
+  evidence       AudioEvidence[] 
+  
 }
 
 model MemoryFact {
@@ -45,7 +123,6 @@ model Policy {
   version     String                     // e.g. "1.0"
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-
   sections    PolicySection[]
 }
 
@@ -107,5 +184,74 @@ model Call {
   @@index([agentId])
   @@index([customerId])
   @@index([classification, severity])
+}
+
+model Document {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  category    String   // e.g. "policies", "hr", "sales"
+  subsection  String?  // e.g. "company-policies", "onboarding"
+  fileName    String
+  filePath    String   // Path to the uploaded file
+  fileSize    Int      // File size in bytes
+  mimeType    String   // e.g. "application/pdf"
+  uploadedBy  String?  // User ID who uploaded
+  headers     Json?    // Document headers/metadata
+  isProcessed Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category, subsection])
+  @@index([uploadedBy])
+  @@index([isProcessed])
+}
+
+enum PolicyDocumentType {
+  CODE_OF_CONDUCT
+  DATA_PRIVACY_POLICY
+  IT_SECURITY_POLICY
+  REMOTE_WORK_POLICY
+  ONBOARDING
+  PERFORMANCE
+  LEAVE
+  EMPLOYEE_HANDBOOK
+}
+
+enum PolicyDocumentParentId{
+  POLICY
+  HR
+  SALES 
+  MARKETING 
+  ENGINEERING 
+  PRODUCT 
+  OPS 
+  FINANCE
+  LEGAL
+  OTHER
+}
+
+model PolicyDocument {
+  id          String              @id @default(cuid())
+  title       String
+  description String?
+  type        PolicyDocumentType
+  parentId    PolicyDocumentParentId
+  fileName    String
+  filePath    String              // Path to the uploaded file
+  fileSize    Int                 // File size in bytes
+  mimeType    String              // e.g. "application/pdf"
+  uploadedBy  String?             // User ID who uploaded
+  headers     Json?               // Document headers/metadata
+  isProcessed Boolean             @default(false)
+  version     String?             // Document version
+  effectiveDate DateTime?         // When the policy becomes effective
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([type])
+  @@index([uploadedBy])
+  @@index([isProcessed])
+  @@index([effectiveDate])
 }
 

@@ -8,20 +8,23 @@ import { GeminiService } from '../gemini/gemini.service';
 import { ElasticService } from '../elastic/elastic.service';
 import { v4 as uuidv4 } from 'uuid';
 import { clipTranscript, splitIntoChunks } from 'src/utils/textNormalizer';
-import { CallsService } from '../chat-memory/calls.service';
 import { JiraTicketsService } from '../jira-tickets/jira-tickets.service';
+import { AudioSeverity, Call } from 'src/utils/types';
+import { CallMemoryService } from '../chat-memory/call-memory.service';
 @Injectable()
 export class SpeechService {
     private client: any;
+    private baseLink: string;
     constructor(private readonly configService: ConfigService,
         private readonly geminiService: GeminiService,
         private readonly elasticService: ElasticService,
-        private readonly callsService: CallsService,
-        private readonly jiraTicketsService: JiraTicketsService
+        private readonly jiraTicketsService: JiraTicketsService,
+        private readonly callMemoryService: CallMemoryService
     ) {
+        this.baseLink = this.configService.get('ENVIRONMENT') == "production" ? "https://api-pilot.balanceapp.co.za" : "http://localhost:8787";
         this.client = new SpeechClient({
             keyFilename: this.configService.get('AUTH_PATH'),
-        }); 
+        });
     }
     async getAudioConfig(filePath: string) {
         const metadata = await parseFile(filePath);
@@ -54,10 +57,12 @@ export class SpeechService {
         };
     }
 
-    async callSpeech(path: string) {
+    async callSpeech(path: string, name: string) {
+        const audioPath = this.baseLink + "/uploads/audio/" + name;
         const audio = {
             content: fs.readFileSync(path).toString('base64'),
         };
+
 
         const audioConfig = await this.getAudioConfig(path);
         const request = {
@@ -65,31 +70,31 @@ export class SpeechService {
             audio: audio,
         };
 
-        const [response] = await this.client.recognize(request);
-        const transcription = response.results
-            .map(result => result.alternatives[0].transcript)
-            .join('\n');
-            console.log("transcription", transcription);
-        // const transcription = `
-        //                         good afternoon thank you for calling Horizon Telecom this is Melissa speaking
-        //                         help you today yeah hi I'm calling because I've just checked my bank statement
-        //                         once on the 1st and again on the 3rd what's going on I'm really sorry to hear that sir let me pull up your account so I
-        //                         can take a look may I have your name and the account number please
-        //                         it's Mark Simmons account number 453921
-        //                         thank you Mr Simmons give me just a moment while I check your billing history okay I see 2 identical payments here
-        //                         that's definitely not supposed to happen yeah I figured that out already
-        //                         I'm just frustrated because this isn't the first time you guys have messed up my bill I completely understand your
-        //                         frustration and I'm really sorry this happened again
-        //                         it looks like the second charge was triggered when our system didn't detect the first payment immediately so it
-        //                         processed another 1 automatic
-        //                         so basically your system messed up and I'm out 800 Rand until you fix it I know that's not acceptable
-        //                         I'll submit a refund request right now for the duplicate charge it should be back in your account within 3 to 5 business
-        //                         days 3 to 5 days you took it instantly but I have to wait a week to get it back
-        //                         that's ridiculous I understand completely if I could speed that up I would I'll mark this as urgent so our finance team
-        //                         prioritizes it and I'll email you confirmation before the end of the day
-        //                         fine I'll be watching for that email and for the record if this happens again I'm canceling my service I really hope you
-        //                         don't have to Mr Simmons I'll make sure this issue is escalated so it doesn't happen again you'd better thanks thank you
-        //                         for your patience and again I apologize for the inconvenience have a good day   `
+        // const [response] = await this.client.recognize(request);
+        // const transcription = response.results
+        //     .map(result => result.alternatives[0].transcript)
+        //     .join('\n');
+        const transcription = `
+                                good afternoon thank you for calling Horizon Telecom this is Melissa speaking
+                                help you today yeah hi I'm calling because I've just checked my bank statement
+                                once on the 1st and again on the 3rd what's going on I'm really sorry to hear that sir let me pull up your account so I
+                                can take a look may I have your name and the account number please
+                                it's Mark Simmons account number 453921
+                                thank you Mr Simmons give me just a moment while I check your billing history okay I see 2 identical payments here
+                                that's definitely not supposed to happen yeah I figured that out already
+                                I'm just frustrated because this isn't the first time you guys have messed up my bill I completely understand your
+                                frustration and I'm really sorry this happened again
+                                it looks like the second charge was triggered when our system didn't detect the first payment immediately so it
+                                processed another 1 automatic
+                                so basically your system messed up and I'm out 800 Rand until you fix it I know that's not acceptable
+                                I'll submit a refund request right now for the duplicate charge it should be back in your account within 3 to 5 business
+                                days 3 to 5 days you took it instantly but I have to wait a week to get it back
+                                that's ridiculous I understand completely if I could speed that up I would I'll mark this as urgent so our finance team
+                                prioritizes it and I'll email you confirmation before the end of the day
+                                fine I'll be watching for that email and for the record if this happens again I'm canceling my service I really hope you
+                                don't have to Mr Simmons I'll make sure this issue is escalated so it doesn't happen again you'd better thanks thank you
+                                for your patience and again I apologize for the inconvenience have a good day   `
+
         const systemPrompt = `System: You are an analyst. Produce a concise, factual summary of the call.`
         const userPrompt = `User:
                     - Goal: Summarize for search and analytics.
@@ -102,31 +107,53 @@ export class SpeechService {
         const transcriptChunk = splitIntoChunks(transcription, { chunkSize: 1000 });
         const transcriptEmbedding = await this.geminiService.embedTexts(transcriptChunk.map(c => c.text));
         const answer = await this.geminiService.generateContent(systemPrompt, userPrompt);
+        const classification = await this.classifyCallHybrid({
+            callId: uuidv4(),
+            summary200w: answer.text,
+            transcript: transcription,
+            minConfidence: 0.6
+        });
+        const callDoc: Call = {
+            classification: classification.classification,
+            sentiment: classification.sentiment,
+            severity: classification.severity,
+            audioEntity: {
+                accountId: classification?.entities?.accountId?.toString() || "",
+                orderId: classification?.entities?.orderId?.toString() || "",
+                product: classification?.entities?.product || "",
+            },
+            audioEvidence: classification?.evidence || [],
+            resolved: false,
+            path: audioPath,
+            transcript: transcription,
+            summary: answer.text,
+        }
+        const call = await this.callMemoryService.saveCall(callDoc);
+        const embeddingText = answer.summary + "\n" + callDoc.transcript + "\n" + classification.classification;
+        console.log("call", callDoc.summary, callDoc.transcript, classification.classification);
+        const [summaryEmbedding] = await this.geminiService.embedTexts([embeddingText]);
+        console.log("summaryEmbedding", summaryEmbedding);
 
-        const [summaryEmbedding] = await this.geminiService.embedTexts([answer.text]);
-        const callId = uuidv4();
-        const elasticResponse = await this.elasticService.elasticPost(`/calls/_update/${callId}`, {
+        await this.elasticService.elasticPost(`/calls/_update/${callDoc.id}`, {
             doc: {
-                call_id: callId,
+                id: call.id,
                 timestamp: new Date().toISOString(),
-                agent_id: "agent_001",
-                customer_id: "customer_789",
-                audio_gcs_uri: path,
+                customerId: callDoc?.audioEntity?.accountId || "",
+                audioPath: audioPath,
                 transcript: transcription,
-                summary: answer.text,
+                summary: callDoc.summary,
                 embedding: summaryEmbedding,   // see #2 about mapping & dims
-                intent: "billing_inquiry",
+                intent: callDoc.classification,
                 department: "customer_service",
-                severity: "low"
+                severity: callDoc.severity
             },
             doc_as_upsert: true               // ✅ keep here only
         });
-        console.log("elasticResponse", elasticResponse);
         for (let i = 0; i < transcriptChunk.length; i++) {
             const chunk = transcriptChunk[i];
-            const elasticChunkResponse = await this.elasticService.elasticPost(`/call_chunks/_update/${callId}`, {
+            const elasticChunkResponse = await this.elasticService.elasticPost(`/call_chunks/_update/${callDoc.id}--${i}`, {
                 doc: {
-                    call_id: callId,
+                    call_id: call.id,
                     chunk_id: i,
                     text: chunk.text,
                     speaker: "speaker_0",
@@ -135,30 +162,10 @@ export class SpeechService {
                 doc_as_upsert: true
             })
         }
-        const classification = await this.classifyCallHybrid({
-            callId: uuidv4(),
-            summary200w: answer.text,
-            transcript: transcription,
-            minConfidence: 0.6
-        });
 
-        this.callsService.saveCallLocallyAndIndex({
-            callId: uuidv4(),
-            startedAt: new Date(),
-            endedAt: new Date(),
-            summary: answer.text,
-            transcriptText: transcription,
-            classification: classification.classification,
-            sentiment: classification.sentiment,
-            severity: classification.severity,
-            intents: classification.intents,
-            entities: classification.entities,
-            evidence: classification.evidence,
-            classifierConf: classification.confidence
-        });
         const jiraPayload = await this.maybeCreateJira(classification);
         if (jiraPayload) {
-            await this.jiraTicketsService.createJiraIssue({
+            const ticket = await this.jiraTicketsService.createJiraIssue({
                 title: jiraPayload.fields.summary,
                 description: await this.buildDescription({
                     callId: uuidv4(),
@@ -173,20 +180,23 @@ export class SpeechService {
                 priority: classification.severity,
 
             });
+            console.log("ticket", ticket);
+            const updated = await this.jiraTicketsService.addAttachment(ticket.key as string, path);
+            console.log("updated", updated);
+            return classification;
+
+            // const result = response.results[response.results.length - 1];
+            // const wordsInfo = result.alternatives[0].words;
+            // Note: The transcript within each result is separate and sequential per result.
+            // However, the words list within an alternative includes all the words
+            // from all the results thus far. Thus, to get all the words with speaker
+            // tags, you only have to take the words list from the last result:
+            // wordsInfo.forEach(a =>
+            //     console.log(` word: ${a.word}, speakerTag: ${a.speakerTag}`)
+            // );
+            // return response.results;
+
         }
-        return classification;
-
-        // const result = response.results[response.results.length - 1];
-        // const wordsInfo = result.alternatives[0].words;
-        // Note: The transcript within each result is separate and sequential per result.
-        // However, the words list within an alternative includes all the words
-        // from all the results thus far. Thus, to get all the words with speaker
-        // tags, you only have to take the words list from the last result:
-        // wordsInfo.forEach(a =>
-        //     console.log(` word: ${a.word}, speakerTag: ${a.speakerTag}`)
-        // );
-        // return response.results;
-
     }
 
     async classifyCallHybrid({
@@ -211,8 +221,8 @@ export class SpeechService {
            "sentiment":"negative|neutral|positive",
            "intents":["billing_inquiry","refund_request","tech_support","cancellation","general_feedback"],
            "severity":"low|medium|high",
-           "entities":{"account_id":null,"order_id":null,"product":null},
-           "evidence":[{"speaker":"customer","text":"<short verbatim>","start_ms":null,"end_ms":null}],
+           "entities":{"accountId":null,"orderId":null,"product":null},
+           "evidence":[{"speaker":"customer","text":"<short verbatim>","startMs":null,"endMs":null}],
            "summary":"<<=2 sentences>",
            "confidence":0.0
           }
@@ -292,40 +302,31 @@ export class SpeechService {
             evLines ? `Evidence:\n${evLines}` : "",
         ].filter(Boolean).join("\n");
     }
-
     async processUploadedFile(file: Express.Multer.File) {
         try {
-            console.log('Processing uploaded file:', file.originalname);
-            
             // Create uploads directory if it doesn't exist
             const uploadsDir = path.join(process.cwd(), 'uploads');
             if (!fs.existsSync(uploadsDir)) {
                 fs.mkdirSync(uploadsDir, { recursive: true });
             }
-            
+
             // Generate unique filename
             const fileExtension = path.extname(file.originalname);
             const uniqueFilename = `${uuidv4()}${fileExtension}`;
             const filePath = path.join(uploadsDir, uniqueFilename);
-            
+
             // Save file to uploads directory
             fs.writeFileSync(filePath, file.buffer);
-            
-            console.log('File saved to:', filePath);
-            
+
             // Process the file based on its type
             let result;
             if (this.isAudioFile(file.mimetype)) {
-                console.log('Processing as audio file...');
-                result = await this.callSpeech(filePath);
             } else if (this.isDocumentFile(file.mimetype)) {
-                console.log('Processing as document file...');
                 // result = await this.processDocument(filePath);
             } else {
-                console.log('File type not supported for processing');
-                result = { message: 'File uploaded but not processed (unsupported type)' };
+                result = { message: 'File uploaded but not processed (unsupported type)' ,success:false};
             }
-            
+
             return {
                 filePath,
                 originalName: file.originalname,
@@ -333,24 +334,84 @@ export class SpeechService {
                 mimeType: file.mimetype,
                 processingResult: result
             };
-            
+
         } catch (error) {
             console.error('Error processing uploaded file:', error);
             throw new Error(`Failed to process file: ${error.message}`);
         }
     }
-    
-    private isAudioFile(mimeType: string): boolean {
+    async transcribe(file: Express.Multer.File) {
+        try {
+            // Create uploads directory if it doesn't exist
+            const uploadsDir = path.join(process.cwd(), 'uploads');
+            if (!fs.existsSync(uploadsDir)) {
+                fs.mkdirSync(uploadsDir, { recursive: true });
+            }
+
+            // Generate unique filename
+            const fileExtension = path.extname(file.originalname);
+            const uniqueFilename = `${uuidv4()}${fileExtension}`;
+            const filePath = path.join(uploadsDir, uniqueFilename);
+
+            // Save file to uploads directory
+            fs.writeFileSync(filePath, file.buffer);
+
+            // Process the file based on its type
+            let result;
+            if (this.isAudioFile(file.mimetype)) {
+                result = await this.callSpeech(filePath, uniqueFilename);
+            } else if (this.isDocumentFile(file.mimetype)) {
+                // result = await this.processDocument(filePath);
+            } else {
+                result = { message: 'File uploaded but not processed (unsupported type)' };
+            }
+
+            return {
+                filePath,
+                originalName: file.originalname,
+                size: file.size,
+                mimeType: file.mimetype,
+                processingResult: result
+            };
+
+        } catch (error) {
+            console.error('Error processing uploaded file:', error);
+            throw new Error(`Failed to process file: ${error.message}`);
+        }
+    }
+
+    isAudioFile(mimeType: string): boolean {
         return mimeType.startsWith('audio/');
     }
-    
-    private isDocumentFile(mimeType: string): boolean {
-        return mimeType.includes('pdf') || 
-               mimeType.includes('text/') || 
-               mimeType.includes('application/msword') ||
-               mimeType.includes('application/vnd.openxmlformats-officedocument');
+
+    isDocumentFile(mimeType: string): boolean {
+        return mimeType.includes('pdf') ||
+            mimeType.includes('text/') ||
+            mimeType.includes('application/msword') ||
+            mimeType.includes('application/vnd.openxmlformats-officedocument');
     }
-    
+
+    async processAudioFile(fileId: string, file: Express.Multer.File) {
+        // Create a temporary file path for processing
+        const tempPath = `/tmp/${fileId}_${file.originalname}`;
+        fs.writeFileSync(tempPath, file.buffer);
+        
+        try {
+            // Process the audio file using the existing callSpeech method
+            const result = await this.callSpeech(tempPath, file.originalname);
+            
+            return {
+                success: true,
+                result: result
+            };
+        } finally {
+            // Clean up temporary file
+            if (fs.existsSync(tempPath)) {
+                fs.unlinkSync(tempPath);
+            }
+        }
+    }
+
     private async processDocument(filePath: string) {
         // Add document processing logic here
         // This could include text extraction, indexing, etc.

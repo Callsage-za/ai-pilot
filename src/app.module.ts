@@ -4,7 +4,6 @@ import { AppService } from './app.service';
 import { ElasticModule } from './logic/elastic/elastic.module';
 import { ConfigModule } from '@nestjs/config';
 import { GeminiModule } from './logic/gemini/gemini.module';
-import { DocsModule } from './logic/docs/docs.module';
 import { JiraTicketsModule } from './logic/jira-tickets/jira-tickets.module';
 import { ChatMemoryController } from './logic/chat-memory/chat-memory.controller';
 import { ChatMemoryService } from './logic/chat-memory/chat-memory.service';
@@ -15,19 +14,33 @@ import { PrismaModule } from './logic/prisma/prisma.module';
 import { SpeechController } from './logic/speech/speech.controller';
 import { SpeechService } from './logic/speech/speech.service';
 import { SpeechModule } from './logic/speech/speech.module';
+import { PolicyDocumentsModule } from './logic/policy-documents/policy-documents.module';
+import { ChatController } from './logic/chat/chat.controller';
+import { ChatService } from './logic/chat/chat.service';
+import { ChatModule } from './logic/chat/chat.module';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
+import { resolve } from 'path';
+import { FileUploadModule } from './logic/file-upload/file-upload.module';
 
 @Module({
   imports: [
+    ServeStaticModule.forRoot({
+      rootPath: resolve(process.cwd(), 'uploads'), // path to your folder
+      serveRoot: '/uploads', // optional, URL prefix
+    }),
     ConfigModule.forRoot({ isGlobal: true }),
     ElasticModule,
     GeminiModule,
-    DocsModule,
     JiraTicketsModule,
-    ChatMemoryModule,
+    ChatMemoryModule, 
     PrismaModule,
     SpeechModule,
+    PolicyDocumentsModule,
+    ChatModule,
+    FileUploadModule,
   ],
-  controllers: [AppController, ChatMemoryController, PrismaController, SpeechController],
-  providers: [AppService, ChatMemoryService, SpeechService],
+  controllers: [AppController, ChatMemoryController, PrismaController, SpeechController, ChatController],
+  providers: [AppService, ChatMemoryService, SpeechService, ChatService],
 })
 export class AppModule {}

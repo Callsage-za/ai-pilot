@@ -29,7 +29,7 @@ interface JiraResponse {
 @Injectable()
 export class JiraTicketsService implements OnModuleInit {
     private readonly jiraUtils: JiraUtils;
-    private  jiraPriorities: any;
+    private jiraPriorities: any;
     constructor(
         private readonly configService: ConfigService,
         private readonly elasticService: ElasticService,
@@ -42,7 +42,7 @@ export class JiraTicketsService implements OnModuleInit {
         this.jiraPriorities = res;
         return res; // [{id:"1", name:"Highest"}, ...]
     }
-    async mapSeverityToPriorityId(severity: "high"|"medium"|"low") {
+    async mapSeverityToPriorityId(severity: "high" | "medium" | "low") {
         const pri = this.jiraPriorities; // get [{id,name},...]
         const byName = new Map(pri.map((p: any) => [p.name.toLowerCase(), p.id]));
         return pri.find((p: any) => p.name.toLowerCase() === severity)
@@ -50,46 +50,47 @@ export class JiraTicketsService implements OnModuleInit {
         // if (severity === "high")   return byName.get("high")   ?? byName.get("highest") ?? pri[0].id;
         // if (severity === "medium") return byName.get("medium") ?? pri.find((p:any)=>/med/i.test(p.name))?.id ?? pri[0].id;
         // return byName.get("low") ?? byName.get("lowest") ?? pri[pri.length-1].id;
-      }
+    }
     async ingestProject(projectKey: string) {
         const data = await this.jiraUtils.getAllIssues(projectKey, [
             "summary", "description", "assignee", "status", "updated"
         ]);
         // return data.issues[1].fields.description.content;
-        for (const issue of data.issues.splice(0, 10)) {
-            const f = issue.fields;
-            const descriptionText = this.getDescriptionText(f.description);
-            const search_text = f.summary + ' ' + descriptionText;
-
-            const [vec] = await this.geminiService.embedTexts([search_text]);
-            const doc = {
-                key: issue.key,
-                project: projectKey,
-                summary: f.summary,
-                description: descriptionText || null,
-                status: f.status?.name,
-                assignee_displayName: f.assignee?.displayName || null,
-                assignee_accountId: f.assignee?.accountId || null,
-                assignee_normalized: normalizeName(f.assignee?.displayName),
-                updated: f.updated,
-                search_text,
-                embedding: vec
-            };
-
-            // upsert into Elastic
-            await this.elasticService.elasticPost(`/jira_issues/_update/${issue.key}`, {
-                doc,
-                doc_as_upsert: true
-            });
-
-            console.log(`Indexed ${issue.key}`);
+        for (const issue of data.issues.splice(0, 100)) {
+            await this.handleJiraIssue(issue,projectKey);
         }
     }
+    async handleJiraIssue(issue,projectKey: string) {
+        const f = issue.fields;
+        const descriptionText = this.getDescriptionText(f.description);
+        const search_text = f.summary + ' ' + descriptionText;
+        const [vec] = await this.geminiService.embedTexts([search_text]);
+        const doc = {
+            key: issue.key,
+            project: projectKey,
+            summary: f.summary,
+            description: descriptionText || null,
+            status: f.status?.name,
+            assignee_displayName: f.assignee?.displayName || null,
+            assignee_accountId: f.assignee?.accountId || null,
+            assignee_normalized: normalizeName(f.assignee?.displayName),
+            updated: f.updated,
+            search_text,
+            embedding: vec
+        };
 
+        // upsert into Elastic
+        const rsp = await this.elasticService.elasticPost(`/jira_issues/_update/${issue.key}`, {
+            doc,
+            doc_as_upsert: true
+        });
+        console.log(`Indexed ${issue.key}`);
+    }
     async getProjects() {
         return this.jiraUtils.getProjects();
     }
     private getDescriptionText(description?: any): string {
+        if(typeof description === 'string') return description;
         const parts: string[] = [];
         if (description) {
             description.content.forEach((c: any) => {
@@ -122,6 +123,56 @@ export class JiraTicketsService implements OnModuleInit {
             plan,
             who: assignee
         });
+
+        try {
+
+            const SYSTEM = `
+            You are a helpful assistant that summarizes Jira issues into structured JSON.
+            Given a Jira search payload, analyze all tickets and produce a high-level summary.
+            Extract the key, title, summary, and confidence from the provided data.
+            Return only valid JSON in the format:
+            {
+              "answer": string, 
+              "sources": [
+                {
+                  "type": "jira ticket",
+                  "snippet": string,
+                  "title": string,
+                  "confidence": number,
+                  "key": string
+                }
+              ]
+            }
+            `;
+
+            const USER = `
+            Jira payload:
+            ${JSON.stringify({ assignee, plan, results })}
+            
+            Summarize the tickets — include total count, key themes, progress status, and any notable blockers.
+            Each source should represent a ticket with a short summary snippet.
+            `;
+            const answer = await this.geminiService.complete(SYSTEM, USER, [], 0.2);
+            const processedAnswer = JSON.parse(answer.text?.replace(/^```json\s*|\s*```$/g, ""))
+
+            // await this.mem.addMessage(conv.id, 'assistant', answer.text);
+            return {
+                type: "jira_ticket",
+                query: query.query,
+                answer: processedAnswer.answer,
+                sources: processedAnswer.sources.map((h) => ({
+                    type: "jira_ticket",
+                    id: h.key,
+                    title: h.tiele,
+                    snippet: (h.summary || h.snippet),
+                    score: h.confidence,
+                    confidence: h.confidence
+                })),
+            }
+        } catch (err: any) {
+            throw new Error(`Search failed: ${err.message}`);
+        }
+
         return { assignee, plan, results };
         // const result = await this.geminiService.generateContent(query);
         // return result;
@@ -230,7 +281,6 @@ export class JiraTicketsService implements OnModuleInit {
         who: { accountId?: string; displayName?: string };
     }) {
         const keywords = (plan.keywords ?? "").trim();
-        console.log("keywords", keywords, "==========");
         const bm25Body = {
             query: {
                 bool: {
@@ -390,9 +440,9 @@ export class JiraTicketsService implements OnModuleInit {
         }
     }
 
-    async createJiraIssue({ title, description, priority }: { title: string; description: string; priority: "high"|"medium"|"low"; }) {
+    async createJiraIssue({ title, description, priority }: { title: string; description: string; priority: "high" | "medium" | "low" }) {
         const priorityStruct = await this.mapSeverityToPriorityId(priority);
-        
+
         // Convert plain text description to Jira ADF format
         const adfDescription = {
             type: "doc",
@@ -410,14 +460,19 @@ export class JiraTicketsService implements OnModuleInit {
             ]
         };
 
-        return await this.jiraUtils.jiraPost(`/rest/api/3/issue`, {
+        const jiraIssue = await this.jiraUtils.jiraPost(`/rest/api/3/issue`, {
             fields: {
-                project: { key: "SCRUM" },
+                project: { key: "SAG" },
                 summary: title,
                 issuetype: { name: "Task" },
                 priority: { id: priorityStruct.id }, // Use ID instead of name
                 description: adfDescription
             }
         });
+       return jiraIssue;
+    }
+
+    async addAttachment(issueKey: string, filePath: string) {
+        return this.jiraUtils.addAttachment(issueKey, filePath);
     }
 }
