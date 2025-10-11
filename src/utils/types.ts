@@ -80,6 +80,7 @@ export interface InfoSource {
     snippet: string;
     score?: number;
     confidence?: number;
+    key?: string;
 }
 
 export interface Call {

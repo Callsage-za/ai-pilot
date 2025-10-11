@@ -38,4 +38,7 @@ export class CallMemoryService {
     async getCall(id: string) {
         return this.prisma.call.findUnique({ where: { id } });
     }
+    async getAllAudioFiles(){
+        return this.prisma.audioFile.findMany()
+    }
 }

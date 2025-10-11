@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseInterceptors, UploadedFile, UploadedFiles } from '@nestjs/common';
+import { Controller, Post, Body, UseInterceptors, UploadedFile, UploadedFiles, Get } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { SpeechService } from './speech.service';
 import { FileUploadService } from '../file-upload/file-upload.service';
@@ -11,8 +11,12 @@ export class SpeechController {
     ) {}
 
     @Post('callSpeech')
-    async callSpeech(@Body() body: {path: string,name: string}) {
-        return this.speechService.callSpeech(body.path,body.name);
+    async callSpeech(@Body() body: {path: string,name: string, audioPath: string}) {
+        return this.speechService.callSpeech(body.path,body.name, body.audioPath);
+    }
+    @Get('all')
+    async getAllAudioFiles(){
+        return this. speechService.getAllAudioFiles()
     }
 
     @Post("uploadFile")

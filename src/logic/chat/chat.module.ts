@@ -7,6 +7,7 @@ import { JiraTicketsModule } from '../jira-tickets/jira-tickets.module';
 import { PolicyDocumentsModule } from '../policy-documents/policy-documents.module';
 import { FileUploadModule } from '../file-upload/file-upload.module';
 import { SpeechModule } from '../speech/speech.module';
+import { CallSearchModule } from '../call-search/call-search.module';
 
 @Module({
     imports: [
@@ -15,7 +16,8 @@ import { SpeechModule } from '../speech/speech.module';
         JiraTicketsModule,
         PolicyDocumentsModule,
         FileUploadModule,
-        SpeechModule
+        SpeechModule,
+        CallSearchModule
     ],
     controllers: [ChatController],
     providers: [ChatService],

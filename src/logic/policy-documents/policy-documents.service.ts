@@ -42,7 +42,7 @@ export class PolicyDocumentsService {
 
     this.documents.push(document);
     await this.policyDocSaveService.savePolicyDocument(document);
-    await this.injestPolicyDocs(localPath, data.parentId);
+    await this.injestPolicyDocs(localPath, data.parentId,document.filePath);
     return document;
   }
 
@@ -125,7 +125,7 @@ export class PolicyDocumentsService {
     return this.searchDocs(query, 5, "asdasd", "123456");
   }
 
-  async injestPolicyDocs(filePath: string, department?: string) {
+  async injestPolicyDocs(filePath: string, department?: string, externalPath?: string) {
     const { text } = await extractTextFromFile(filePath);
     const systemPrompt = "You extract sections VERBATIM from the provided TEXT. Do NOT paraphrase or correct words. Copy text exactly as it appears.";
     const userPrompt = getPolicyPrompt(text);
@@ -145,7 +145,8 @@ export class PolicyDocumentsService {
         body: s.exact_text || s.exactText,          // <- maps to "body" in your mapping
         vec,                         // <- maps to "vec" dense_vector
         version: answer.version,
-        department: department ?? "General"
+        department: department ?? "General",
+        externalPath: externalPath ?? ""
       };
       // Use deterministic ID so re-ingest overwrites cleanly
       const _id = `${answer.document_id ?? answer.id}__${s.id}`;
@@ -224,7 +225,7 @@ export class PolicyDocumentsService {
       add(bm25.hits.hits, 1);
       add(knn.hits.hits, 1);
       const merged = Array.from(map.values()).sort((a, b) => b.rrf - a.rrf).slice(0, size);
-
+      console.log("merged", merged);
       const hits: SearchHit[] = merged.map(h => ({
         id: h._id,
         score: h._score,
@@ -251,7 +252,8 @@ export class PolicyDocumentsService {
         id: h._id,
         title: h._source?.title,
         snippet: (h._source?.body || ""),
-        score: h.score
+        score: h.score,
+        key: h._source?.externalPath
       }))
       return {
         query,

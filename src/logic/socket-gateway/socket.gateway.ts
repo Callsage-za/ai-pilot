@@ -1,0 +1,64 @@
+import {
+  WebSocketGateway,
+  WebSocketServer,
+  SubscribeMessage,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+  WsException,
+} from '@nestjs/websockets';
+import { Server, Socket } from 'socket.io';
+import { forwardRef, Inject, Injectable, UseGuards } from '@nestjs/common';
+
+@WebSocketGateway({
+  cors: {
+    origin: '*', // In production, replace with your frontend URL
+  },
+})
+
+@Injectable()
+export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  private connectedUsers: Map<string, Socket> = new Map(); // userId -> socket
+  private connectedUserAuthTokens: Map<string, string> = new Map(); // userId -> authToken
+  @WebSocketServer()
+  public server: Server;
+  
+  constructor(
+  ) {
+
+  }
+  handleDisconnect(client: any) {
+
+  }
+
+  async handleConnection(client: Socket) {
+    // console.log(client);
+    
+    try {
+
+    } catch (error) {
+      console.error('Connection error:', error);
+      client.disconnect();
+    }
+  }
+  emitToSocket(socketId: string, event: string, data: any): boolean {
+    const socket = this.server.sockets.sockets.get(socketId);
+    if (socket) {
+      socket.emit(event, data);
+      return true;
+    }
+    return false;
+  }
+  emitMessage(data:any){
+    this.server.emit('data-received',data)
+  }
+
+  emitToUser(userId: number, event: string, data: any): boolean {
+    const socket = this.connectedUsers.get(userId.toString());
+    if (socket) {
+      socket.emit(event, data);
+      return true;
+    }
+    return false;
+  }
+  
+}   

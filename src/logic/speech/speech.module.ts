@@ -6,6 +6,7 @@ import { GeminiModule } from '../gemini/gemini.module';
 import { ElasticModule } from '../elastic/elastic.module';
 import { JiraTicketsModule } from '../jira-tickets/jira-tickets.module';
 import { ChatMemoryModule } from '../chat-memory/chat-memory.module';
+import { SocketGatewayModule } from '../socket-gateway/socket-gateway.module';
 
 @Module({
     imports: [
@@ -13,7 +14,8 @@ import { ChatMemoryModule } from '../chat-memory/chat-memory.module';
         GeminiModule,
         ElasticModule,
         JiraTicketsModule,
-        ChatMemoryModule
+        ChatMemoryModule,
+        SocketGatewayModule
     ],
     controllers: [SpeechController],
     providers: [SpeechService],

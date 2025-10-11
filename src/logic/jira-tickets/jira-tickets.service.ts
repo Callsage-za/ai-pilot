@@ -38,9 +38,9 @@ export class JiraTicketsService implements OnModuleInit {
         this.jiraUtils = new JiraUtils(configService);
     }
     async onModuleInit() {
-        const res = await this.jiraUtils.jiraGet("/rest/api/3/priority");
-        this.jiraPriorities = res;
-        return res; // [{id:"1", name:"Highest"}, ...]
+        // const res = await this.jiraUtils.jiraGet("/rest/api/3/priority");
+        // this.jiraPriorities = res;
+        // return res; // [{id:"1", name:"Highest"}, ...]
     }
     async mapSeverityToPriorityId(severity: "high" | "medium" | "low") {
         const pri = this.jiraPriorities; // get [{id,name},...]

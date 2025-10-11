@@ -11,20 +11,34 @@ import { clipTranscript, splitIntoChunks } from 'src/utils/textNormalizer';
 import { JiraTicketsService } from '../jira-tickets/jira-tickets.service';
 import { AudioSeverity, Call } from 'src/utils/types';
 import { CallMemoryService } from '../chat-memory/call-memory.service';
+import { Interval } from '@nestjs/schedule';
+import { SocketGateway } from '../socket-gateway/socket.gateway';
 @Injectable()
 export class SpeechService {
+
     private client: any;
     private baseLink: string;
     constructor(private readonly configService: ConfigService,
         private readonly geminiService: GeminiService,
         private readonly elasticService: ElasticService,
         private readonly jiraTicketsService: JiraTicketsService,
-        private readonly callMemoryService: CallMemoryService
+        private readonly callMemoryService: CallMemoryService,
+        private readonly socketService:SocketGateway
     ) {
         this.baseLink = this.configService.get('ENVIRONMENT') == "production" ? "https://api-pilot.balanceapp.co.za" : "http://localhost:8787";
         this.client = new SpeechClient({
             keyFilename: this.configService.get('AUTH_PATH'),
         });
+    }
+    async getAllAudioFiles() {
+        return this.callMemoryService.getAllAudioFiles()
+    }
+
+    async runTest() {
+
+        const calls = await this.getAllAudioFiles()
+        this.socketService.emitMessage(calls)
+
     }
     async getAudioConfig(filePath: string) {
         const metadata = await parseFile(filePath);
@@ -57,8 +71,10 @@ export class SpeechService {
         };
     }
 
-    async callSpeech(path: string, name: string) {
-        const audioPath = this.baseLink + "/uploads/audio/" + name;
+    async callSpeech(path: string, name: string, audioPath?: string) {
+        if (!audioPath) {
+            audioPath = this.baseLink + "/uploads/audio/" + name;
+        }
         const audio = {
             content: fs.readFileSync(path).toString('base64'),
         };
@@ -130,9 +146,7 @@ export class SpeechService {
         }
         const call = await this.callMemoryService.saveCall(callDoc);
         const embeddingText = answer.summary + "\n" + callDoc.transcript + "\n" + classification.classification;
-        console.log("call", callDoc.summary, callDoc.transcript, classification.classification);
         const [summaryEmbedding] = await this.geminiService.embedTexts([embeddingText]);
-        console.log("summaryEmbedding", summaryEmbedding);
 
         await this.elasticService.elasticPost(`/calls/_update/${callDoc.id}`, {
             doc: {
@@ -180,9 +194,7 @@ export class SpeechService {
                 priority: classification.severity,
 
             });
-            console.log("ticket", ticket);
             const updated = await this.jiraTicketsService.addAttachment(ticket.key as string, path);
-            console.log("updated", updated);
             return classification;
 
             // const result = response.results[response.results.length - 1];
@@ -324,7 +336,7 @@ export class SpeechService {
             } else if (this.isDocumentFile(file.mimetype)) {
                 // result = await this.processDocument(filePath);
             } else {
-                result = { message: 'File uploaded but not processed (unsupported type)' ,success:false};
+                result = { message: 'File uploaded but not processed (unsupported type)', success: false };
             }
 
             return {
@@ -359,7 +371,7 @@ export class SpeechService {
             // Process the file based on its type
             let result;
             if (this.isAudioFile(file.mimetype)) {
-                result = await this.callSpeech(filePath, uniqueFilename);
+                result = await this.callSpeech(filePath, uniqueFilename, filePath);
             } else if (this.isDocumentFile(file.mimetype)) {
                 // result = await this.processDocument(filePath);
             } else {
@@ -395,11 +407,11 @@ export class SpeechService {
         // Create a temporary file path for processing
         const tempPath = `/tmp/${fileId}_${file.originalname}`;
         fs.writeFileSync(tempPath, file.buffer);
-        
+
         try {
             // Process the audio file using the existing callSpeech method
             const result = await this.callSpeech(tempPath, file.originalname);
-            
+
             return {
                 success: true,
                 result: result

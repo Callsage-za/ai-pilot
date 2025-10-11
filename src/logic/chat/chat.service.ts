@@ -8,6 +8,7 @@ import { PolicyDocumentsService } from '../policy-documents/policy-documents.ser
 import { ConvState } from '../../utils/types';
 import { FileUploadService } from '../file-upload/file-upload.service';
 import { SpeechService } from '../speech/speech.service';
+import { CallSearchService } from '../call-search/call-search.service';
 
 @Injectable()
 export class ChatService {
@@ -17,7 +18,8 @@ export class ChatService {
         private readonly jiraService: JiraTicketsService,
         private readonly policyDocumentsService: PolicyDocumentsService,
         private readonly fileUploadService: FileUploadService,
-        private readonly speechService: SpeechService) { }
+        private readonly speechService: SpeechService,
+        private readonly callSearchService: CallSearchService) { }
 
         
     async ask(body: { query: string; conversationId: string; fileNames: string[] }) {
@@ -25,15 +27,16 @@ export class ChatService {
         
         // Process uploaded files if any
         if (fileNames && fileNames.length > 0) {
+            
             await this.processUploadedFiles(fileNames);
         }
         
         const systemPrompt = intentPrompt()
         const history = conversationId ? await this.chatMemoryService.getRecentHistoryAsc(conversationId) : [];
-        console.log("history", history);
         const conversation = await this.chatMemoryService.ensureConversation("123456", "", conversationId);
 
         const intentAnswer = await this.geminiService.complete(systemPrompt, userMessage(conversation.conversationState, query), history)
+        
         const intent = JSON.parse(intentAnswer.text?.replace(/^```json\s*|\s*```$/g, ""))
         conversation.conversationState = {
             active_intent: intent.intent,
@@ -85,6 +88,17 @@ export class ChatService {
                 answer = result;
                 type = "docs.search";
                 break;
+            case "call.search":
+                const callQuery = intent.slots.query || query;
+                const callFilters = {
+                    tags: intent.slots.filters?.tags || [],
+                    time_range: intent.slots.time_range || null
+                };
+                
+                answer = await this.callSearchService.searchCalls(callQuery, callFilters);
+                
+                type = "call.search";
+                break;
             // return this.docsService.searchDocs(intent.slots.query, 5, conversationId, "1234");
             default:
 
@@ -106,6 +120,7 @@ export class ChatService {
             try {
                 // Get file upload record by ID
                 const fileUpload = await this.fileUploadService.getFileUpload(fileId);
+                
                 if (!fileUpload) {
                     console.warn(`File upload not found for ID: ${fileId}`);
                     continue;
@@ -150,7 +165,7 @@ export class ChatService {
             fs.copyFileSync(fileUpload.localPath, tempPath);
             
             // Process with speech service
-            const result = await this.speechService.callSpeech(tempPath, fileUpload.originalName);
+            const result = await this.speechService.callSpeech(tempPath, fileUpload.originalName, fileUpload.externalPath);
             console.log(`Audio processing result for ${fileUpload.originalName}:`, result);
             
         } finally {

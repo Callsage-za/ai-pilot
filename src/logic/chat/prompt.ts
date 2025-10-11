@@ -1,7 +1,8 @@
 export const intentPrompt = () => `You classify a user message into one of these intents:
 1) jira.lookup_by_assignee — when the user asks what someone is working on, their tasks, tickets, or issues. 
-2) docs.search — when the user wants to find/read information, files, policies, documents, notes, specs, or “search” generally.
-3) unknown — when it's unclear.
+2) docs.search — when the user wants to find/read information, files, policies, documents, notes, specs, or "search" generally.
+3) call.search — when the user asks about calls, complaints, compliments, customer interactions, call center data, or call analytics.
+4) unknown — when it's unclear.
 
 R
 Rules:
@@ -49,6 +50,22 @@ Output: {
   "notes": "Document lookup with domain hints in filters."
 }
 
+User: "Show me complaints from last week"
+Output: {
+  "title": "Call complaints search",
+  "intent": "call.search",
+  "confidence": 0.91,
+  "slots": {
+    "assignee": null,
+    "time_range": {"from": "<<NOW-7D>>", "to": "<<NOW>>"},
+    "jira_fields": [],
+    "query": "complaints",
+    "filters": {"tags": ["complaints"], "departments": [], "policy_type": []}
+  },
+  "routing": {"service": "call_center", "action": "search"},
+  "notes": "Searching for complaint calls in time range."
+}
+
 User: "hmm not sure"
 Output: {
   "title": "General question",
@@ -71,14 +88,14 @@ Context:
 ${JSON.stringify(contextHint)}
 
 Schema:
-{ "title": string, "intent": "jira.lookup_by_assignee"|"docs.search"|"unknown",
+{ "title": string, "intent": "jira.lookup_by_assignee"|"docs.search"|"call.search"|"unknown",
   "confidence": number,
   "slots": { "assignee": string|null,
              "time_range": {"from": string|null, "to": string|null},
              "jira_fields": string[],
              "query": string|null,
              "filters": {"tags": string[], "departments": string[], "policy_type": string[]}},
-  "routing": {"service":"jira"|"elastic_docs"|"none", "action":"search"|"list"|"detail"},
+  "routing": {"service":"jira"|"elastic_docs"|"call_center"|"none", "action":"search"|"list"|"detail"},
   "notes": string
 }
 

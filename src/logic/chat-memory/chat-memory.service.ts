@@ -45,7 +45,8 @@ export class ChatMemoryService {
           title: s.title || s.snippet || "unknown",
           snippet: s.snippet || s.title || "unknown",
           score: s.score,
-          confidence: s.confidence
+          confidence: s.confidence,
+          key: s.key,
         }))
       };
     }
@@ -95,10 +96,8 @@ export class ChatMemoryService {
 
   async updateConversationTitle(conversationId: string, title: string) {
     const conversation = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
-    console.log("conversation", conversation,title);
     if (conversation) {
       if (conversation.title == "null" || conversation.title == "") {
-        console.log("conversation", conversation,title);
         await this.prisma.conversation.update({
           where: { id: conversationId },
           data: { title }
