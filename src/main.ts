@@ -4,33 +4,30 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Enable CORS with high priority to override Apache
+  // Enable CORS for frontend communication
   app.enableCors({
-    origin: 'https://callsage.balanceapp.co.za',
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Origin', 'Accept'],
-    credentials: true,
-    optionsSuccessStatus: 200
-  });
-
-  // Additional middleware to ensure headers are set correctly
-  app.use((req, res, next) => {
-    // Force remove any existing CORS headers
-    res.removeHeader('Access-Control-Allow-Origin');
-    res.removeHeader('Access-Control-Allow-Methods');
-    res.removeHeader('Access-Control-Allow-Headers');
-    res.removeHeader('Access-Control-Allow-Credentials');
-    res.removeHeader('Access-Control-Max-Age');
-    res.removeHeader('Vary');
-    
-    // Set our CORS headers
-    res.setHeader('Access-Control-Allow-Origin', 'https://callsage.balanceapp.co.za');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Origin, Accept');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Max-Age', '86400');
-    
-    next();
+    origin: (origin, callback) => {
+      const allowedOrigins = [
+        'http://localhost:3000',
+        'http://localhost:4001',
+        'http://localhost:8080',
+        'http://localhost:8081',
+        'http://localhost:5173',
+        'https://callsage.balanceapp.co.za'
+      ];
+      
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+      
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      } else {
+        return callback(new Error('Not allowed by CORS'));
+      }
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    credentials: false,
   });
 
   await app.listen(process.env.PORT ?? 8787);
