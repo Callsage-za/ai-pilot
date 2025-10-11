@@ -6,12 +6,25 @@ async function bootstrap() {
 
   // Enable CORS for frontend communication
   app.enableCors({
-    origin: ['http://localhost:3000',
-      'http://localhost:4001',
-      'http://localhost:8080',
-      'http://localhost:8081',
-      'http://localhost:5173',
-      'https://callsage.balanceapp.co.za'], // Add your frontend URLs
+    origin: (origin, callback) => {
+      const allowedOrigins = [
+        'http://localhost:3000',
+        'http://localhost:4001',
+        'http://localhost:8080',
+        'http://localhost:8081',
+        'http://localhost:5173',
+        'https://callsage.balanceapp.co.za'
+      ];
+      
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+      
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      } else {
+        return callback(new Error('Not allowed by CORS'));
+      }
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
     credentials: false,
