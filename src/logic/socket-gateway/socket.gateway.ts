@@ -11,7 +11,15 @@ import { forwardRef, Inject, Injectable, UseGuards } from '@nestjs/common';
 
 @WebSocketGateway({
   cors: {
-    origin: '*', // In production, replace with your frontend URL
+    origin: [
+      'http://localhost:3000',
+      'http://localhost:4001', 
+      'http://localhost:8080',
+      'http://localhost:8081',
+      'http://localhost:5173',
+      'https://callsage.balanceapp.co.za'
+    ],
+    credentials: false,
   },
 })
 
