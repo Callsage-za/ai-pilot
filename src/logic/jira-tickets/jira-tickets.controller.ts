@@ -13,7 +13,18 @@ export class JiraTicketsController {
     }
     @Post('jira-update')
     async jiraUpdate(@Body() body: any) {
-        await this.jiraTicketsService.handleJiraIssue(body.issue,body.key);
+        
+        // Handle different webhook events
+        if (body.webhookEvent === 'jira:issue_deleted') {
+            console.log("Issue deleted event received");
+            await this.jiraTicketsService.handleJiraIssueDeletion(body.issue);
+        } else if (body.webhookEvent === 'jira:issue_updated' || body.webhookEvent === 'jira:issue_created') {
+            console.log("Issue updated/created event received");
+            await this.jiraTicketsService.handleJiraIssue(body.issue, body.key);
+        } else {
+            console.log("Unknown webhook event:", body.webhookEvent);
+        }
+        
         return { message: "OK" };
     }
     @Get('getProjects') 

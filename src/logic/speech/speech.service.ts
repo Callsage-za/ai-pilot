@@ -23,7 +23,7 @@ export class SpeechService {
         private readonly elasticService: ElasticService,
         private readonly jiraTicketsService: JiraTicketsService,
         private readonly callMemoryService: CallMemoryService,
-        private readonly socketService:SocketGateway
+        private readonly socketService: SocketGateway
     ) {
         this.baseLink = this.configService.get('ENVIRONMENT') == "production" ? "https://api-pilot.balanceapp.co.za" : "http://localhost:8787";
         this.client = new SpeechClient({
@@ -86,33 +86,11 @@ export class SpeechService {
             audio: audio,
         };
 
-        // const [response] = await this.client.recognize(request);
-        // const transcription = response.results
-        //     .map(result => result.alternatives[0].transcript)
-        //     .join('\n');
-        const transcription = `[Phone rings — Company Representative answers]
+        const [response] = await this.client.recognize(request);
+        const transcription = response.results
+            .map(result => result.alternatives[0].transcript)
+            .join('\n');
 
-Rep (Sarah): Good afternoon! Thank you for calling BrightTech Solutions, this is Sarah speaking. How can I help you today?
-
-Customer (Mr. Daniels): Hi Sarah! I just wanted to give some feedback — I recently had my laptop repaired by your team, and I have to say, I’m really impressed.
-
-Sarah: That’s wonderful to hear, Mr. Daniels! We always appreciate feedback. May I ask which branch or technician helped you?
-
-Mr. Daniels: It was the Rosebank branch — a technician named Kevin. He was super friendly, explained everything clearly, and my laptop’s working perfectly now.
-
-Sarah: I’m so glad to hear that! Kevin will be thrilled to know his work made such a positive impression. I’ll be sure to pass along your feedback.
-
-Mr. Daniels: Please do. I’ll definitely recommend BrightTech to my colleagues. It’s rare to find such good customer service these days.
-
-Sarah: Thank you so much for saying that — we really value your support. Is there anything else we can assist you with today?
-
-Mr. Daniels: No, that’s all. Just wanted to share my thanks.
-
-Sarah: We appreciate you taking the time to call, Mr. Daniels. Have a wonderful day!
-
-Mr. Daniels: You too, goodbye.
-
-Sarah: Goodbye!`
 
         const systemPrompt = `System: You are an analyst. Produce a concise, factual summary of the call.`
         const userPrompt = `User:

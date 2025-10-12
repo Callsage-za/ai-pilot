@@ -25,9 +25,11 @@ export class ChatService {
     async ask(body: { query: string; conversationId: string; fileNames: string[] }) {
         let { query, conversationId, fileNames } = body;
 
-        // Process uploaded files if any
+        // Process uploaded files if any and get their processed content
+        let fileContext = '';
         if (fileNames && fileNames.length > 0) {
             await this.processUploadedFiles(fileNames);
+            fileContext = await this.getProcessedFileContent(fileNames);
         }
 
         // Language detection and translation
@@ -41,11 +43,18 @@ export class ChatService {
             console.log(`Translated from ${originalLanguage}: "${originalQuery}" -> "${englishQuery}"`);
         }
 
+        // Enhance query with processed file content if available
+        let enhancedQuery = englishQuery;
+        if (fileContext) {
+            enhancedQuery = `${englishQuery}\n\nContext from attached files:\n${fileContext}`;
+            console.log(`Enhanced query with file context: ${fileContext.length} characters`);
+        }
+
         const systemPrompt = intentPrompt()
         const history = conversationId ? await this.chatMemoryService.getRecentHistoryAsc(conversationId) : [];
         const conversation = await this.chatMemoryService.ensureConversation("123456", "", conversationId);
 
-        const intentAnswer = await this.geminiService.complete(systemPrompt, userMessage(conversation.conversationState, englishQuery), history)
+        const intentAnswer = await this.geminiService.complete(systemPrompt, userMessage(conversation.conversationState, enhancedQuery), history)
 
         const intent = JSON.parse(intentAnswer.text?.replace(/^```json\s*|\s*```$/g, ""))
         conversation.conversationState = {
@@ -139,7 +148,7 @@ export class ChatService {
 
                                         Be conversational and warm, but professional.`;
 
-                const userPrompt = `User asked: "${englishQuery}"
+                const userPrompt = `User asked: "${enhancedQuery}"
 
 Please provide a helpful response that guides them on what you can help with.`;
 
@@ -288,5 +297,49 @@ Please provide a helpful response that guides them on what you can help with.`;
                 console.error(`Error linking file ${fileId} to message ${messageId}:`, error);
             }
         }
+    }
+
+    private async getProcessedFileContent(fileIds: string[]): Promise<string> {
+        const fileContents: string[] = [];
+        
+        for (const fileId of fileIds) {
+            try {
+                const fileUpload = await this.fileUploadService.getFileUpload(fileId);
+                if (!fileUpload) {
+                    console.warn(`File upload not found for ID: ${fileId}`);
+                    continue;
+                }
+
+                let content = '';
+                
+                // Use already processed data based on file type
+                if (this.speechService.isAudioFile(fileUpload.mimeType)) {
+                    // For audio files, use filename summary (transcript would be in database if processed)
+                    const baseName = fileUpload.originalName.replace(/\.[^/.]+$/, "");
+                    const summaryInfo = baseName.replace(/[-_]/g, ' ');
+                    content = `[Audio File: ${fileUpload.originalName}]\nSummary: ${summaryInfo}`;
+                    console.log(`Using audio file summary: ${summaryInfo}`);
+                } else if (this.speechService.isDocumentFile(fileUpload.mimeType)) {
+                    // For document files, use filename as summary
+                    const baseName = fileUpload.originalName.replace(/\.[^/.]+$/, "");
+                    const summaryInfo = baseName.replace(/[-_]/g, ' ');
+                    content = `[Document: ${fileUpload.originalName}]\nSummary: ${summaryInfo}`;
+                    console.log(`Using document file summary: ${summaryInfo}`);
+                } else {
+                    // For other file types, just mention the file
+                    content = `[File: ${fileUpload.originalName}]`;
+                    console.log(`Other file type: ${fileUpload.originalName}`);
+                }
+
+                if (content) {
+                    fileContents.push(content);
+                }
+
+            } catch (error) {
+                console.error(`Error getting processed content from file ${fileId}:`, error);
+            }
+        }
+
+        return fileContents.join('\n\n');
     }
 }

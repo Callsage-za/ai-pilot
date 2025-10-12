@@ -44,5 +44,17 @@ export class ElasticService {
         return json;
       }
 
+    async elasticDelete<T = any>(path: string): Promise<T> {
+        const resp = await fetch(`${this.esUrl}${path}`, {
+            method: "DELETE",
+            headers: this.headers
+        });
+        if (!resp.ok) {
+            const text = await resp.text();
+            throw new Error(`Elasticsearch delete error ${resp.status}: ${text}`);
+        }
+        return resp.json() as Promise<T>;
+    }
+
 
 }

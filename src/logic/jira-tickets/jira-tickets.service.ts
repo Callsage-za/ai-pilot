@@ -38,8 +38,8 @@ export class JiraTicketsService implements OnModuleInit {
         this.jiraUtils = new JiraUtils(configService);
     }
     async onModuleInit() {
-        // const res = await this.jiraUtils.jiraGet("/rest/api/3/priority");
-        // this.jiraPriorities = res;
+        const res = await this.jiraUtils.jiraGet("/rest/api/3/priority");
+        this.jiraPriorities = res;
         // return res; // [{id:"1", name:"Highest"}, ...]
     }
     async mapSeverityToPriorityId(severity: "high" | "medium" | "low") {
@@ -87,6 +87,41 @@ export class JiraTicketsService implements OnModuleInit {
             doc_as_upsert: true
         });
         console.log(`Indexed ${issue.key}`);
+    }
+
+    async handleJiraIssueDeletion(issue: any) {
+        
+        try {
+            // Delete the document from Elasticsearch using a direct fetch call
+            const esUrl = this.configService.get('ELASTIC_URL') || '';
+            const esPass = this.configService.get('ELASTIC_API_KEY') || '';
+            const headers = {
+                'Content-Type': 'application/json',
+                'Authorization': `APIKey ${esPass}`
+            };
+
+            const response = await fetch(`${esUrl}/jira_issues/_doc/${issue.key}`, {
+                method: "DELETE",
+                headers
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`Elasticsearch delete error ${response.status}: ${text}`);
+            }
+
+            const result = await response.json();
+            console.log(`✅ Successfully deleted JIRA issue ${issue.key} from Elasticsearch`);
+            return result;
+        } catch (error) {
+            console.error(`❌ Failed to delete JIRA issue ${issue.key} from Elasticsearch:`, error);
+            // Don't throw the error to avoid webhook retries for non-existent documents
+            if (error.status === 404) {
+                console.log(`Issue ${issue.key} was not found in Elasticsearch (already deleted)`);
+            } else {
+                console.error(`Unexpected error deleting issue ${issue.key}:`, error);
+            }
+        }
     }
     async getProjects() {
         return this.jiraUtils.getProjects();
