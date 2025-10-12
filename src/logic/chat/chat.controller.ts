@@ -13,8 +13,6 @@ export class ChatController {
         fileNames: string[],
 
     }) {
-        console.log("body", body);
-        
         return this.chatService.ask(body);
     }
 

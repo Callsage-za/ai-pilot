@@ -36,6 +36,9 @@ model Message {
   conversationId String
   role           String       // 'user' | 'assistant' | 'system'
   content        String
+  originalContent String?     // Original text in user's language
+  originalLanguage String?    // Language code (e.g., 'es', 'fr', 'de')
+  englishContent String?      // English translation of the content
   ts             DateTime     @default(now())
   type           String?
   source         InfoSource[]

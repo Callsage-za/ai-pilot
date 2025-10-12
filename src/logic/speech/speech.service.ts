@@ -90,26 +90,29 @@ export class SpeechService {
         // const transcription = response.results
         //     .map(result => result.alternatives[0].transcript)
         //     .join('\n');
-        const transcription = `
-                                good afternoon thank you for calling Horizon Telecom this is Melissa speaking
-                                help you today yeah hi I'm calling because I've just checked my bank statement
-                                once on the 1st and again on the 3rd what's going on I'm really sorry to hear that sir let me pull up your account so I
-                                can take a look may I have your name and the account number please
-                                it's Mark Simmons account number 453921
-                                thank you Mr Simmons give me just a moment while I check your billing history okay I see 2 identical payments here
-                                that's definitely not supposed to happen yeah I figured that out already
-                                I'm just frustrated because this isn't the first time you guys have messed up my bill I completely understand your
-                                frustration and I'm really sorry this happened again
-                                it looks like the second charge was triggered when our system didn't detect the first payment immediately so it
-                                processed another 1 automatic
-                                so basically your system messed up and I'm out 800 Rand until you fix it I know that's not acceptable
-                                I'll submit a refund request right now for the duplicate charge it should be back in your account within 3 to 5 business
-                                days 3 to 5 days you took it instantly but I have to wait a week to get it back
-                                that's ridiculous I understand completely if I could speed that up I would I'll mark this as urgent so our finance team
-                                prioritizes it and I'll email you confirmation before the end of the day
-                                fine I'll be watching for that email and for the record if this happens again I'm canceling my service I really hope you
-                                don't have to Mr Simmons I'll make sure this issue is escalated so it doesn't happen again you'd better thanks thank you
-                                for your patience and again I apologize for the inconvenience have a good day   `
+        const transcription = `[Phone rings — Company Representative answers]
+
+Rep (Sarah): Good afternoon! Thank you for calling BrightTech Solutions, this is Sarah speaking. How can I help you today?
+
+Customer (Mr. Daniels): Hi Sarah! I just wanted to give some feedback — I recently had my laptop repaired by your team, and I have to say, I’m really impressed.
+
+Sarah: That’s wonderful to hear, Mr. Daniels! We always appreciate feedback. May I ask which branch or technician helped you?
+
+Mr. Daniels: It was the Rosebank branch — a technician named Kevin. He was super friendly, explained everything clearly, and my laptop’s working perfectly now.
+
+Sarah: I’m so glad to hear that! Kevin will be thrilled to know his work made such a positive impression. I’ll be sure to pass along your feedback.
+
+Mr. Daniels: Please do. I’ll definitely recommend BrightTech to my colleagues. It’s rare to find such good customer service these days.
+
+Sarah: Thank you so much for saying that — we really value your support. Is there anything else we can assist you with today?
+
+Mr. Daniels: No, that’s all. Just wanted to share my thanks.
+
+Sarah: We appreciate you taking the time to call, Mr. Daniels. Have a wonderful day!
+
+Mr. Daniels: You too, goodbye.
+
+Sarah: Goodbye!`
 
         const systemPrompt = `System: You are an analyst. Produce a concise, factual summary of the call.`
         const userPrompt = `User:
@@ -121,7 +124,9 @@ export class SpeechService {
                     `
 
         const transcriptChunk = splitIntoChunks(transcription, { chunkSize: 1000 });
+
         const transcriptEmbedding = await this.geminiService.embedTexts(transcriptChunk.map(c => c.text));
+
         const answer = await this.geminiService.generateContent(systemPrompt, userPrompt);
         const classification = await this.classifyCallHybrid({
             callId: uuidv4(),
@@ -129,6 +134,7 @@ export class SpeechService {
             transcript: transcription,
             minConfidence: 0.6
         });
+
         const callDoc: Call = {
             classification: classification.classification,
             sentiment: classification.sentiment,
@@ -140,7 +146,7 @@ export class SpeechService {
             },
             audioEvidence: classification?.evidence || [],
             resolved: false,
-            path: audioPath,
+            path: audioPath || "",
             transcript: transcription,
             summary: answer.text,
         }
@@ -180,7 +186,7 @@ export class SpeechService {
         const jiraPayload = await this.maybeCreateJira(classification);
         if (jiraPayload) {
             const ticket = await this.jiraTicketsService.createJiraIssue({
-                title: jiraPayload.fields.summary,
+                title: jiraPayload?.fields.summary || "",
                 description: await this.buildDescription({
                     callId: uuidv4(),
                     summary: classification.summary,

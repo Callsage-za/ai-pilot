@@ -25,6 +25,79 @@ export class GeminiService {
         this.EMBED_MODEL = EMBED_MODEL;
         this.CHAT_MODEL = CHAT_MODEL;
     }
+    async detectLanguage(text: string): Promise<string> {
+        try {
+            const prompt = `Detect the language of this text and return only the ISO 639-1 language code. 
+
+Important: Look carefully for African languages like Shona (sn), Swahili (sw), Zulu (zu), Xhosa (xh), and other Bantu languages.
+
+Common languages include: English (en), Spanish (es), French (fr), German (de), Italian (it), Portuguese (pt), Russian (ru), Chinese (zh), Japanese (ja), Korean (ko), Arabic (ar), Hindi (hi), Shona (sn), Swahili (sw), Zulu (zu), Xhosa (xh), Afrikaans (af), Dutch (nl), Swedish (sv), Norwegian (no), Danish (da), Finnish (fi), Polish (pl), Czech (cs), Hungarian (hu), Romanian (ro), Bulgarian (bg), Greek (el), Turkish (tr), Hebrew (he), Persian (fa), Urdu (ur), Bengali (bn), Tamil (ta), Telugu (te), Malayalam (ml), Kannada (kn), Gujarati (gu), Punjabi (pa), Marathi (mr), Nepali (ne), Sinhala (si), Thai (th), Vietnamese (vi), Indonesian (id), Malay (ms), Filipino (tl), Ukrainian (uk), Belarusian (be), Croatian (hr), Serbian (sr), Slovenian (sl), Slovak (sk), Lithuanian (lt), Latvian (lv), Estonian (et), Icelandic (is), Irish (ga), Welsh (cy), Basque (eu), Catalan (ca), Galician (gl), Maltese (mt), Luxembourgish (lb), Faroese (fo), Greenlandic (kl), Sami (se), Maori (mi), Hawaiian (haw), Cherokee (chr), Navajo (nv), Cree (cr), Ojibwe (oj), Inuktitut (iu), Yiddish (yi), Esperanto (eo), Latin (la), Sanskrit (sa), Ancient Greek (grc), Old English (ang), Middle English (enm), Old French (fro), Old German (goh), Gothic (got), Old Norse (non), Old Irish (sga), Old Welsh (owl), Old Breton (obt), Old Cornish (oco), Old Manx (omx), Old Scottish Gaelic (gdg), Old Irish (sga), Old Welsh (owl), Old Breton (obt), Old Cornish (oco), Old Manx (omx), Old Scottish Gaelic (gdg).
+
+If the text is in English, return 'en'. If you're unsure, return 'en'.
+
+Text: "${text}"
+
+Language code:`;
+
+            const result = await this.generateContent(prompt);
+            const languageCode = result.text?.trim().toLowerCase() || 'en';
+            
+            console.log(`Detected language code: "${languageCode}"`);
+            
+            // Validate that it's a valid language code - expanded list
+            const validCodes = [
+                'en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'zh', 'ja', 'ko', 'ar', 'hi', 
+                'sn', 'sw', 'zu', 'xh', 'af', 'nl', 'sv', 'no', 'da', 'fi', 'pl', 'cs', 
+                'hu', 'ro', 'bg', 'el', 'tr', 'he', 'fa', 'ur', 'bn', 'ta', 'te', 'ml', 
+                'kn', 'gu', 'pa', 'mr', 'ne', 'si', 'th', 'vi', 'id', 'ms', 'tl', 'uk', 
+                'be', 'hr', 'sr', 'sl', 'sk', 'lt', 'lv', 'et', 'is', 'ga', 'cy', 'eu', 
+                'ca', 'gl', 'mt', 'lb', 'fo', 'kl', 'se', 'mi', 'haw', 'chr', 'nv', 'cr', 
+                'oj', 'iu', 'yi', 'eo', 'la', 'sa', 'grc', 'ang', 'enm', 'fro', 'goh', 
+                'got', 'non', 'sga', 'owl', 'obt', 'oco', 'omx', 'gdg'
+            ];
+            
+            const detectedCode = validCodes.includes(languageCode) ? languageCode : 'en';
+            console.log(`Final language code: "${detectedCode}"`);
+            return detectedCode;
+        } catch (error) {
+            console.error('Error detecting language:', error);
+            return 'en'; // Default to English
+        }
+    }
+
+    async translateText(text: string, fromLanguage: string, toLanguage: string): Promise<string> {
+        try {
+            if (fromLanguage === toLanguage) {
+                console.log(`No translation needed: ${fromLanguage} -> ${toLanguage}`);
+                return text; // No translation needed
+            }
+
+            console.log(`Translating: ${fromLanguage} -> ${toLanguage}`);
+            console.log(`Original text: "${text}"`);
+
+            const prompt = `Translate the following text from ${fromLanguage} to ${toLanguage}. 
+
+${fromLanguage === 'sn' ? 'Note: The source language is Shona (a Bantu language from Zimbabwe).' : ''}
+${toLanguage === 'sn' ? 'Note: Translate to Shona (a Bantu language from Zimbabwe).' : ''}
+
+Return only the translated text, nothing else.
+
+Text: "${text}"
+
+Translation:`;
+
+            const result = await this.generateContent(prompt);
+            const translatedText = result.text?.trim() || text;
+            
+            console.log(`Translation result: "${translatedText}"`);
+            return translatedText;
+        } catch (error) {
+            console.error('Error translating text:', error);
+            console.log(`Falling back to original text: "${text}"`);
+            return text; // Return original text if translation fails
+        }
+    }
+
     async embedTexts(texts: string[]): Promise<number[][]> {
         try {
             // Process all texts in a single batch call

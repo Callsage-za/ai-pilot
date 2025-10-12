@@ -61,6 +61,8 @@ export class JiraTicketsService implements OnModuleInit {
         }
     }
     async handleJiraIssue(issue,projectKey: string) {
+        console.log("issue", issue);
+        
         const f = issue.fields;
         const descriptionText = this.getDescriptionText(f.description);
         const search_text = f.summary + ' ' + descriptionText;

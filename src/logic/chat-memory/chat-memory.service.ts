@@ -59,6 +59,36 @@ export class ChatMemoryService {
     });
   }
 
+  async addMessageWithLanguage(messageData: any) {
+    // Extract source from messageData and format it for Prisma
+    const { source, ...messageFields } = messageData;
+    
+    const data: any = {
+      ...messageFields
+    };
+
+    // Add source if provided
+    if (source && source.length > 0) {
+      data.source = {
+        create: source.map((s: any) => ({
+          type: s.type || 'unknown',
+          title: s.title || s.snippet || "unknown",
+          snippet: s.snippet || s.title || "unknown",
+          score: s.score,
+          confidence: s.confidence,
+          key: s.key
+        }))
+      };
+    }
+
+    return this.prisma.message.create({
+      data,
+      include: {
+        source: true
+      }
+    });
+  }
+
   async getRecentHistoryAsc(conversationId: string, limit = this.MAX_MESSAGES): Promise<ChatMessage[]> {
     // Pull newest first then reverse, or fetch ascending directly
     const msgs = await this.prisma.message.findMany({
