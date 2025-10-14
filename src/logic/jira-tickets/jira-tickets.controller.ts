@@ -1,5 +1,8 @@
-import { Controller, Post, Body, HttpException, HttpStatus, Get, Param } from '@nestjs/common';
+import { Controller, Post, Body, HttpException, HttpStatus, Get, Param, Put, UseGuards, Request } from '@nestjs/common';
 import { JiraTicketsService } from './jira-tickets.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { User } from '../../entities/user.entity';
+import { Public } from '../auth/decorators/public.decorator';
 import z from 'zod';
 
 interface IngestRequest {
@@ -7,10 +10,12 @@ interface IngestRequest {
 }
 
 @Controller('jira-tickets')
+@UseGuards(JwtAuthGuard)
 export class JiraTicketsController {
     
     constructor(private readonly jiraTicketsService: JiraTicketsService) { 
     }
+    @Public()
     @Post('jira-update')
     async jiraUpdate(@Body() body: any) {
         
@@ -112,5 +117,20 @@ export class JiraTicketsController {
         });
         const payload = schema.parse(body);
         return this.jiraTicketsService.reassignIssue(issueKey, payload.accountId);
+    }
+
+    @Get()
+    async getAllTickets(@Request() req: { user: User }) {
+        return this.jiraTicketsService.getAllTickets(req.user);
+    }
+
+    @Get('users')
+    async getUsers() {
+        return this.jiraTicketsService.getUsers();
+    }
+
+    @Put(':issueKey/assign')
+    async assignTicket(@Param('issueKey') issueKey: string, @Body() body: { assigneeId: string }) {
+        return this.jiraTicketsService.reassignIssue(issueKey, body.assigneeId);
     }
 }

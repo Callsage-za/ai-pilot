@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseInterceptors, UploadedFile, UploadedFiles, Get, UseGuards, Request } from '@nestjs/common';
+import { Controller, Post, Body, UseInterceptors, UploadedFile, UploadedFiles, Get, UseGuards, Request, Put, Param } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { SpeechService } from './speech.service';
 import { FileUploadService } from '../file-upload/file-upload.service';
@@ -62,5 +62,10 @@ export class SpeechController {
             count: files.length,
             results: results
         };
+    }
+
+    @Put('audio/:id/classification')
+    async updateClassification(@Request() req: { user: User }, @Param('id') id: string, @Body() body: { classification: string }) {
+        return this.speechService.updateClassification(id, body.classification, req.user);
     }
 }

@@ -35,6 +35,10 @@ export class SpeechService {
         return this.callMemoryService.getAllAudioFiles(user.id, user.organizationId)
     }
 
+    async updateClassification(id: string, classification: string, user: User) {
+        return this.callMemoryService.updateClassification(id, classification, user.id, user.organizationId);
+    }
+
     async runTest(user?: User) {
 
         const calls = await this.getAllAudioFiles(user || { id: '', organizationId: '' } as User)

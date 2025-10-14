@@ -5,6 +5,7 @@ import { normalizeName } from 'src/utils/textNormalizer';
 import { ConfigService } from '@nestjs/config';
 import { JiraUtils } from 'src/utils/jiraUtils';
 import { JiraPlan } from './types';
+import { User } from '../../entities/user.entity';
 
 interface JiraIssue {
     key: string;
@@ -43,9 +44,13 @@ export class JiraTicketsService implements OnModuleInit {
         // return res; // [{id:"1", name:"Highest"}, ...]
     }
     async mapSeverityToPriorityId(severity: "high" | "medium" | "low") {
+        console.log('severity', severity);
+        console.log('jiraPriorities', this.jiraPriorities);
         const pri = this.jiraPriorities; // get [{id,name},...]
         const byName = new Map(pri.map((p: any) => [p.name.toLowerCase(), p.id]));
+        console.log('byName', byName);
         return pri.find((p: any) => p.name.toLowerCase() === severity)
+
         // prefer these if they exist; fall back to any reasonable match
         // if (severity === "high")   return byName.get("high")   ?? byName.get("highest") ?? pri[0].id;
         // if (severity === "medium") return byName.get("medium") ?? pri.find((p:any)=>/med/i.test(p.name))?.id ?? pri[0].id;
@@ -57,13 +62,13 @@ export class JiraTicketsService implements OnModuleInit {
         ]);
         // return data.issues[1].fields.description.content;
         for (const issue of data.issues.splice(0, 100)) {
-            await this.handleJiraIssue(issue,projectKey);
+            await this.handleJiraIssue(issue, projectKey);
         }
     }
-    async handleJiraIssue(issue,projectKey: string) {
+    async handleJiraIssue(issue, projectKey: string) {
         const f = issue.fields;
         const descriptionText = this.getDescriptionText(f.description);
-        const search_text = f.summary + ' ' + descriptionText+' '+projectKey+' '+issue.key;
+        const search_text = f.summary + ' ' + descriptionText + ' ' + projectKey + ' ' + issue.key;
         const [vec] = await this.geminiService.embedTexts([search_text]);
         const doc = {
             key: issue.key,
@@ -88,7 +93,7 @@ export class JiraTicketsService implements OnModuleInit {
     }
 
     async handleJiraIssueDeletion(issue: any) {
-        
+
         try {
             // Delete the document from Elasticsearch using a direct fetch call
             const esUrl = this.configService.get('ELASTIC_URL') || '';
@@ -125,7 +130,7 @@ export class JiraTicketsService implements OnModuleInit {
         return this.jiraUtils.getProjects();
     }
     private getDescriptionText(description?: any): string {
-        if(typeof description === 'string') return description;
+        if (typeof description === 'string') return description;
         const parts: string[] = [];
         if (description) {
             description.content.forEach((c: any) => {
@@ -520,7 +525,7 @@ export class JiraTicketsService implements OnModuleInit {
         try {
             const issueTypes = await this.jiraUtils.getProjectIssueTypes("SAG");
             const availableTypes = issueTypes.map((type: any) => type.name);
-            
+
             // Check if the requested issue type exists, otherwise use the first available type
             if (!availableTypes.includes(issueType)) {
                 console.warn(`Issue type "${issueType}" not found. Available types: ${availableTypes.join(', ')}`);
@@ -556,11 +561,11 @@ export class JiraTicketsService implements OnModuleInit {
 
         Object.assign(fields, extraFields ?? {});
         console.log(fields);
-        
+
         const jiraIssue = await this.jiraUtils.jiraPost(`/rest/api/3/issue`, {
             fields
         });
-       return jiraIssue;
+        return jiraIssue;
     }
 
     async addAttachment(issueKey: string, filePath: string) {
@@ -633,5 +638,46 @@ export class JiraTicketsService implements OnModuleInit {
             accountId
         });
         return { success: true };
+    }
+
+    async getAllTickets(user: User) {
+        try {
+            const data = await this.jiraUtils.getAllIssues("SAG", [
+                "summary", "description", "assignee", "status", "updated", "created"
+            ]);
+            return data.issues.map((issue: any) => ({
+                id: issue.id,
+                key: issue.key,
+                summary: issue.fields.summary,
+                description: this.getDescriptionText(issue.fields.description),
+                status: issue.fields.status.name,
+                priority: issue.fields.priority?.name || 'Medium',
+                assignee: issue.fields.assignee ? {
+                    displayName: issue.fields.assignee.displayName,
+                    emailAddress: issue.fields.assignee.emailAddress
+                } : null,
+                created: issue.fields.created,
+                updated: issue.fields.updated,
+                issueType: issue?.fields?.issuetype?.name,
+                project: issue?.fields?.project?.name
+            }));
+        } catch (error) {
+            console.error('Error fetching Jira tickets:', error);
+            throw new Error('Failed to fetch Jira tickets');
+        }
+    }
+
+    async getUsers() {
+        try {
+            const response = await this.jiraUtils.jiraGet('/rest/api/3/users/search?query=');
+            return response.map((user: any) => ({
+                accountId: user.accountId,
+                displayName: user.displayName,
+                emailAddress: user.emailAddress
+            }));
+        } catch (error) {
+            console.error('Error fetching Jira users:', error);
+            throw new Error('Failed to fetch Jira users');
+        }
     }
 }

@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, OneToOne, OneToMany, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, OneToOne, OneToMany, ManyToOne, JoinColumn, UpdateDateColumn, CreateDateColumn } from 'typeorm';
 import { AudioEntities } from './audio-entities.entity';
 import { AudioEvidence } from './audio-evidence.entity';
 import { AudioClassification, AudioSentiment, AudioSeverity } from '../utils/types';
@@ -62,4 +62,9 @@ export class AudioFile {
 
   @OneToMany(() => AudioEvidence, evidence => evidence.audio)
   evidence?: AudioEvidence[];
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;  
 }

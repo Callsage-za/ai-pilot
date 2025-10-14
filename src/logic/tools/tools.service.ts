@@ -201,6 +201,7 @@ Return JSON ONLY with keys: title, description, priority, labels?, dueDate?, ass
 
     let plan: any;
     try {
+      console.log('text', text);
       plan = JSON.parse(text?.replace(/^```json\s*|\s*```$/g, '') || '{}');
     } catch (error) {
       throw new BadRequestException('Could not interpret Jira ticket details from the assistant response');
@@ -210,9 +211,10 @@ Return JSON ONLY with keys: title, description, priority, labels?, dueDate?, ass
       throw new BadRequestException('Unable to derive Jira ticket details from the request');
     }
 
+    console.log('plan', plan);
     const priority = String(plan.priority)?.toLowerCase()||'medium';
     
-
+    console.log('priority', priority);
     const labels = Array.isArray(plan.labels) ? plan.labels.map((label: any) => String(label)) : undefined;
     const dueDate = typeof plan.dueDate === 'string' ? plan.dueDate : undefined;
     const assigneeAccountId = typeof plan.assigneeAccountId === 'string'

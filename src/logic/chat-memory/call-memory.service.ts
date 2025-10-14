@@ -71,4 +71,17 @@ export class CallMemoryService {
             }
         })
     }
+
+    async updateClassification(id: string, classification: string, userId: string, organizationId: string) {
+        const audioFile = await this.audioFileRepository.findOne({
+            where: { id, userId, organizationId }
+        });
+
+        if (!audioFile) {
+            throw new Error('Audio file not found or access denied');
+        }
+
+        audioFile.classification = classification as any;
+        return this.audioFileRepository.save(audioFile);
+    }
 }
