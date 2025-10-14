@@ -36,12 +36,37 @@ export class JiraUtils {
             body: JSON.stringify(body)
         });
         if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`);
-        return r.json();
+        const text = await r.text();
+        if (!text) return true;
+        try {
+            return JSON.parse(text);
+        } catch { 
+            return text;
+        }
+    }
+    async jiraPut(path: string, body: any) {
+        const url = `${this.JIRA_URL}${path}`;
+        const r = await fetch(url, {
+            method: "PUT",
+            headers: { "Accept": "application/json", "Content-Type": "application/json", ...this.authHeader(), },
+            body: JSON.stringify(body)
+        });
+        if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`);
+        try {
+            return await r.json();
+        } catch {
+            return true;
+        }
     }
 
     async getProjects() {
         const data = await this.jiraGet("/rest/api/3/project");
         return data;
+    }
+
+    async getProjectIssueTypes(projectKey: string) {
+        const data = await this.jiraGet(`/rest/api/3/project/${projectKey}`);
+        return data.issueTypes;
     }
 
     async getAllIssues(projectKey: string, fields: string[] = ["summary", "status", "assignee", "updated"]) {

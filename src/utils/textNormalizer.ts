@@ -1,5 +1,5 @@
 import path from "path";
-const pdf = require('pdf-parse');
+// const pdf = require('pdf-parse');
 import mammoth from "mammoth";
 import { readFile } from 'node:fs/promises';
 
@@ -26,11 +26,11 @@ export function normalizeText(s: string): string {
     if (ext === ".pdf") {
         const buf = await readFile(filePath);
         const buffer = new Uint8Array(buf);
-        const result = await pdf(buffer);
+        // const result = await pdf(buffer);
 
         return {
-            text: normalizeText(result.text || ""),
-            meta: { pages: result.pages ?? undefined }
+            text: "pdf",
+            meta: { pages: "pdf" }
         };
     }
     

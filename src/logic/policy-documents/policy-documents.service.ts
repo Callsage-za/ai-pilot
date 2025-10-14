@@ -7,42 +7,47 @@ import { PolicyDocument, PolicyDocumentType, PolicyDocumentUploadData, SearchHit
 import { ChatMemoryService } from '../chat-memory/chat-memory.service';
 import { ElasticService } from '../elastic/elastic.service';
 import { getPolicyPrompt } from './prompts';
+import { v4 as uuidv4 } from 'uuid';
+import { SocketGateway } from '../socket-gateway/socket.gateway';
 
 
 @Injectable()
 export class PolicyDocumentsService {
-  constructor(private readonly policyDocSaveService: PolicyService,
+  constructor(
+    private readonly policyDocSaveService: PolicyService,
     private readonly geminiService: GeminiService,
     private readonly policyService: PolicyService,
     private readonly mem: ChatMemoryService,
     private readonly elasticService: ElasticService,
+    private readonly socketGateway: SocketGateway,
   ) {
   }
   private documents: PolicyDocument[] = [];
 
   async createPolicyDocument(data: PolicyDocumentUploadData,localPath:string): Promise<PolicyDocument> {
     const document: PolicyDocument = {
-      id: `doc-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+      id:uuidv4(),
       title: data.title,
-      description: data.description,
+      description: data?.description || '',
       type: data.type,
       fileName: data.fileName,
       filePath: data.filePath,
       fileSize: data.fileSize,
       mimeType: data.mimeType,
-      uploadedBy: data.uploadedBy,
+      uploadedBy: data.uploadedBy||undefined,
       headers: data.headers,
       isProcessed: false,
-      version: data.version,
+      version: data?.version||undefined,
       effectiveDate: data.effectiveDate,
       createdAt: new Date(),
       updatedAt: new Date(),
-      parentId: data.parentId,
+      parentId: data?.parentId||undefined,
     };
 
-    this.documents.push(document);
     await this.policyDocSaveService.savePolicyDocument(document);
-    await this.injestPolicyDocs(localPath, data.parentId,document.filePath);
+    await this.injestPolicyDocs(localPath, data.parentId, document.filePath);
+    this.socketGateway.broadcast('documents.updated', { document });
+    this.socketGateway.emitMessage({ type: 'documents.updated', document });
     return document;
   }
 

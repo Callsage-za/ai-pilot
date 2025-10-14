@@ -61,11 +61,9 @@ export class JiraTicketsService implements OnModuleInit {
         }
     }
     async handleJiraIssue(issue,projectKey: string) {
-        console.log("issue", issue);
-        
         const f = issue.fields;
         const descriptionText = this.getDescriptionText(f.description);
-        const search_text = f.summary + ' ' + descriptionText;
+        const search_text = f.summary + ' ' + descriptionText+' '+projectKey+' '+issue.key;
         const [vec] = await this.geminiService.embedTexts([search_text]);
         const doc = {
             key: issue.key,
@@ -477,11 +475,8 @@ export class JiraTicketsService implements OnModuleInit {
         }
     }
 
-    async createJiraIssue({ title, description, priority }: { title: string; description: string; priority: "high" | "medium" | "low" }) {
-        const priorityStruct = await this.mapSeverityToPriorityId(priority);
-
-        // Convert plain text description to Jira ADF format
-        const adfDescription = {
+    private buildAdfDocument(text: string) {
+        return {
             type: "doc",
             version: 1,
             content: [
@@ -490,26 +485,153 @@ export class JiraTicketsService implements OnModuleInit {
                     content: [
                         {
                             type: "text",
-                            text: description
+                            text: text
                         }
                     ]
                 }
             ]
         };
+    }
 
-        const jiraIssue = await this.jiraUtils.jiraPost(`/rest/api/3/issue`, {
-            fields: {
-                project: { key: "SAG" },
-                summary: title,
-                issuetype: { name: "Task" },
-                priority: { id: priorityStruct.id }, // Use ID instead of name
-                description: adfDescription
+    async createJiraIssue({
+        title,
+        description,
+        priority,
+        labels,
+        dueDate,
+        assigneeAccountId,
+        issueType = "Task",
+        extraFields = {}
+    }: {
+        title: string;
+        description: string;
+        priority: "high" | "medium" | "low";
+        labels?: string[];
+        dueDate?: string;
+        assigneeAccountId?: string;
+        projectKey?: string;
+        issueType?: string;
+        extraFields?: Record<string, any>;
+    }) {
+        const priorityStruct = await this.mapSeverityToPriorityId(priority);
+
+        // Get available issue types for the project
+        let validIssueType = issueType;
+        try {
+            const issueTypes = await this.jiraUtils.getProjectIssueTypes("SAG");
+            const availableTypes = issueTypes.map((type: any) => type.name);
+            
+            // Check if the requested issue type exists, otherwise use the first available type
+            if (!availableTypes.includes(issueType)) {
+                console.warn(`Issue type "${issueType}" not found. Available types: ${availableTypes.join(', ')}`);
+                validIssueType = availableTypes[0] || "Task";
             }
+        } catch (error) {
+            console.warn(`Could not fetch issue types for project SAG: ${error.message}`);
+            validIssueType = "Task"; // Fallback to Task
+        }
+
+        const fields: any = {
+            project: { key: "SAG" },
+            summary: title,
+            issuetype: { name: validIssueType },
+            description: this.buildAdfDocument(description),
+        };
+
+        if (priorityStruct?.id) {
+            fields.priority = { id: priorityStruct.id };
+        }
+
+        if (labels?.length) {
+            fields.labels = labels;
+        }
+
+        if (dueDate) {
+            fields.duedate = dueDate;
+        }
+
+        if (assigneeAccountId) {
+            fields.assignee = { accountId: assigneeAccountId };
+        }
+
+        Object.assign(fields, extraFields ?? {});
+        console.log(fields);
+        
+        const jiraIssue = await this.jiraUtils.jiraPost(`/rest/api/3/issue`, {
+            fields
         });
        return jiraIssue;
     }
 
     async addAttachment(issueKey: string, filePath: string) {
         return this.jiraUtils.addAttachment(issueKey, filePath);
+    }
+
+    async addComment(issueKey: string, comment: string) {
+        const adfComment = this.buildAdfDocument(comment);
+        await this.jiraUtils.jiraPost(`/rest/api/3/issue/${issueKey}/comment`, {
+            body: adfComment
+        });
+        return { success: true };
+    }
+
+    async getAvailableIssueTypes(projectKey: string = "SAG") {
+        try {
+            const issueTypes = await this.jiraUtils.getProjectIssueTypes(projectKey);
+            return issueTypes.map((type: any) => ({
+                id: type.id,
+                name: type.name,
+                description: type.description
+            }));
+        } catch (error) {
+            console.error(`Error fetching issue types for project ${projectKey}:`, error);
+            return [];
+        }
+    }
+
+    private normalizeTransitionTarget(target: string) {
+        const normalized = target.toLowerCase().replace(/\s+/g, "_");
+        const lookup: Record<string, string> = {
+            inprogress: "In Progress",
+            "in_progress": "In Progress",
+            doing: "In Progress",
+            started: "In Progress",
+            inreview: "In Review",
+            "in_review": "In Review",
+            readyfordeploy: "Ready for Deploy",
+            done: "Done",
+            completed: "Done",
+            complete: "Done",
+            closed: "Done",
+            todo: "To Do",
+            backlog: "Backlog"
+        };
+        return lookup[normalized] || target;
+    }
+
+    async transitionIssue(issueKey: string, targetState: string) {
+        const transitions = await this.jiraUtils.jiraGet(`/rest/api/3/issue/${issueKey}/transitions`);
+        const desiredName = this.normalizeTransitionTarget(targetState);
+        const transition = transitions?.transitions?.find((t: any) => t.name.toLowerCase() === desiredName.toLowerCase());
+
+        if (!transition) {
+            throw new Error(`Transition "${desiredName}" not available for issue ${issueKey}`);
+        }
+
+        await this.jiraUtils.jiraPost(`/rest/api/3/issue/${issueKey}/transitions`, {
+            transition: { id: transition.id }
+        });
+
+        return { success: true, transition: transition.name };
+    }
+
+    async reassignIssue(issueKey: string, accountId: string) {
+        if (!accountId) {
+            throw new Error('accountId is required to reassign an issue');
+        }
+        await this.jiraUtils.jiraPut(`/rest/api/3/issue/${issueKey}/assignee`, {
+            accountId
+        });
+        return { success: true };
     }
 }

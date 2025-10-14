@@ -2,8 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { ChatMessage, ConversationState, Role } from './types';
 import { REWRITE_SYSTEM, SUMMARIZE_SYSTEM, buildRewriteUser } from './prompts';
 import { GeminiService } from '../gemini/gemini.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { InfoSource } from '../../utils/types';
+import { InfoSource as InfoSourceType } from '../../utils/types';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Conversation, Message, InfoSource } from 'src/entities';
 
 @Injectable()
 export class ChatMemoryService {
@@ -13,18 +15,29 @@ export class ChatMemoryService {
 
   constructor(
     private readonly geminiService: GeminiService,
-    private readonly prisma: PrismaService,
+    @InjectRepository(Conversation)
+    private readonly conversationRepository: Repository<Conversation>,
+    @InjectRepository(Message)
+    private readonly messageRepository: Repository<Message>,
+    @InjectRepository(InfoSource)
+    private readonly infoSourceRepository: Repository<InfoSource>,
   ) { }
 
-  async ensureConversation(userId: string, title: string, conversationId?: string) {
+  async ensureConversation(userId: string, organizationId: string, conversationId?: string) {
     if (conversationId) {
-      const c = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
+      const c = await this.conversationRepository.findOne({ 
+        where: { 
+          id: conversationId,
+          userId,
+          organizationId 
+        } 
+      });
       if (c) return c;
     }
-    return this.prisma.conversation.create({ data: { userId, title } });
+    return this.conversationRepository.save({ userId, organizationId, title: '' });
   }
 
-  async addMessage(conversationId: string, role: Role, content: string, type: string, source: InfoSource[] = [], attachments: any[] = []) {
+  async addMessage(conversationId: string, role: Role, content: string, type: string, source: InfoSourceType[] = [], attachments: any[] = []) {
     const messageData: any = {
       conversationId,
       role,
@@ -37,53 +50,54 @@ export class ChatMemoryService {
       messageData.attachments = attachments;
     }
 
-    // Only add source if it's not empty
+    // Save the message first
+    const message = await this.messageRepository.save(messageData);
+
+    // Handle source relationships separately if provided
     if (source && source.length > 0) {
-      messageData.source = {
-        create: source.map(s => ({
-          type: s.type || 'unknown',
-          title: s.title || s.snippet || "unknown",
-          snippet: s.snippet || s.title || "unknown",
-          score: s.score,
-          confidence: s.confidence,
-          key: s.key,
-        }))
-      };
+      const sourceEntities = source.map(s => ({
+        messageId: message.id,
+        type: s.type || 'unknown',
+        title: s.title || s.snippet || "unknown",
+        snippet: s.snippet || s.title || "unknown",
+        score: s.score,
+        confidence: s.confidence,
+        key: s.key,
+      }));
+
+      // Save sources using the InfoSource repository
+      await this.infoSourceRepository.save(sourceEntities);
     }
 
-    return this.prisma.message.create({
-      data: messageData,
-      include: {
-        source: true
-      }
-    });
+    return message;
   }
 
   async addMessageWithLanguage(messageData: any) {
-    // Extract source from messageData and format it for Prisma
+    // Extract source from messageData
     const { source, ...messageFields } = messageData;
-    
-    const data: any = {
-      ...messageFields
-    };
 
-    // Add source if provided
+    // Save the message first
+    const message = await this.messageRepository.save(messageFields);
+
+    // Handle source relationships separately if provided
     if (source && source.length > 0) {
-      data.source = {
-        create: source.map((s: any) => ({
-          type: s.type || 'unknown',
-          title: s.title || s.snippet || "unknown",
-          snippet: s.snippet || s.title || "unknown",
-          score: s.score,
-          confidence: s.confidence,
-          key: s.key
-        }))
-      };
+      const sourceEntities = source.map((s: any) => ({
+        messageId: message.id,
+        type: s.type || 'unknown',
+        title: s.title || s.snippet || "unknown",
+        snippet: s.snippet || s.title || "unknown",
+        score: s.score,
+        confidence: s.confidence,
+        key: s.key
+      }));
+
+      // Save sources using the InfoSource repository
+      await this.infoSourceRepository.save(sourceEntities);
     }
 
-    return this.prisma.message.create({
-      data,
-      include: {
+    return this.messageRepository.findOne({
+      where: { id: message.id },
+      relations: {
         source: true
       }
     });
@@ -91,20 +105,19 @@ export class ChatMemoryService {
 
   async getRecentHistoryAsc(conversationId: string, limit = this.MAX_MESSAGES): Promise<ChatMessage[]> {
     // Pull newest first then reverse, or fetch ascending directly
-    const msgs = await this.prisma.message.findMany({
+    const msgs = await this.messageRepository.find({
       where: { conversationId },
-      orderBy: { ts: 'asc' },        // important: chronological for LLMs
-      take: undefined,          // we’ll slice at the end to keep last N
-      include: {
+      order: { ts: 'asc' },        // important: chronological for LLMs
+      relations: {
         source: true
-      },
+      }
     });
     const tail = msgs.slice(Math.max(0, msgs.length - limit));
     return tail.map(m => ({ role: m.role as Role, content: m.content, ts: m.ts.getTime(), source: m.source }));
   }
 
   async getSummary(conversationId: string) {
-    const c = await this.prisma.conversation.findUnique({
+    const c = await this.conversationRepository.findOne({
       where: { id: conversationId },
       select: { summary: true }
     });
@@ -112,25 +125,22 @@ export class ChatMemoryService {
   }
 
   async setSummary(conversationId: string, summary: string) {
-    await this.prisma.conversation.update({
-      where: { id: conversationId },
-      data: { summary }
+    await this.conversationRepository.update(conversationId, {
+      summary
     });
   }
   async setConversationState(conversationId: string, conversationState: any) {
-    await this.prisma.conversation.update({
-      where: { id: conversationId },
-      data: { conversationState }
+    await this.conversationRepository.update(conversationId, {
+      conversationState
     });
   }
 
   async updateConversationTitle(conversationId: string, title: string) {
-    const conversation = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
+    const conversation = await this.conversationRepository.findOne({ where: { id: conversationId } });
     if (conversation) {
       if (conversation.title == "null" || conversation.title == "") {
-        await this.prisma.conversation.update({
-          where: { id: conversationId },
-          data: { title }
+        await this.conversationRepository.update(conversationId, {
+          title
         });
       }
 
@@ -138,7 +148,7 @@ export class ChatMemoryService {
   }
 
   private async maybeSummarize(conversationId: string) {
-    const count = await this.prisma.message.count({ where: { conversationId } });
+    const count = await this.messageRepository.count({ where: { conversationId } });
     if (count >= this.SUMMARIZE_AT) {
       const hist = await this.getRecentHistoryAsc(conversationId, this.MAX_MESSAGES);
       // Map to Gemini’s expected roles via complete()
@@ -176,6 +186,35 @@ export class ChatMemoryService {
     return explicit;
   }
   getConversations() {
-    return this.prisma.conversation.findMany()
+    return this.conversationRepository.find()
+  }
+
+  async getConversationsByUser(userId: string, organizationId: string) {
+    return this.conversationRepository.find({
+      where: {
+        userId,
+        organizationId
+      },
+      order: {
+        createdAt: 'DESC'
+      }
+    });
+  }
+
+  async getRecentHistoryAscForUser(conversationId: string, userId: string, organizationId: string, limit = this.MAX_MESSAGES): Promise<ChatMessage[]> {
+    // First verify the conversation belongs to the user
+    const conversation = await this.conversationRepository.findOne({
+      where: {
+        id: conversationId,
+        userId,
+        organizationId
+      }
+    });
+
+    if (!conversation) {
+      throw new Error('Conversation not found or access denied');
+    }
+
+    return this.getRecentHistoryAsc(conversationId, limit);
   }
 }

@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
 import { FileUploadService } from './file-upload.service';
-import { PrismaModule } from '../prisma/prisma.module';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { FileUpload } from 'src/entities/file-upload.entity';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
-    imports: [PrismaModule],
+    imports: [TypeOrmModule.forFeature([FileUpload]),ConfigModule],
     providers: [FileUploadService],
     exports: [FileUploadService],
 })

@@ -1,4 +1,4 @@
-import { Controller, Post, Body, HttpException, HttpStatus, Get } from '@nestjs/common';
+import { Controller, Post, Body, HttpException, HttpStatus, Get, Param } from '@nestjs/common';
 import { JiraTicketsService } from './jira-tickets.service';
 import z from 'zod';
 
@@ -31,6 +31,11 @@ export class JiraTicketsController {
     async getProjects() {
         return this.jiraTicketsService.getProjects();
     }
+
+    @Get('issue-types/:projectKey')
+    async getIssueTypes(@Param('projectKey') projectKey: string) {
+        return this.jiraTicketsService.getAvailableIssueTypes(projectKey);
+    }
     @Post('ingest')
     async ingestProject(@Body() body: IngestRequest) {
         try {
@@ -62,5 +67,50 @@ export class JiraTicketsController {
         const p = schema.parse(body);
         
         return this.jiraTicketsService.ask(p);
+    }
+
+    @Post('issue')
+    async createIssue(@Body() body: any) {
+        const schema = z.object({
+            title: z.string().min(1),
+            description: z.string().min(1),
+            priority: z.enum(['high', 'medium', 'low']).default('medium'),
+            labels: z.array(z.string().min(1)).optional(),
+            dueDate: z.string().optional(),
+            assigneeAccountId: z.string().optional(),
+            projectKey: z.string().min(1).optional(),
+            issueType: z.string().min(1).optional(),
+            extraFields: z.record(z.string(), z.any()).optional()
+        });
+
+        const payload = schema.parse(body);
+        return this.jiraTicketsService.createJiraIssue(payload);
+    }
+
+    @Post('issue/:issueKey/comment')
+    async addComment(@Param('issueKey') issueKey: string, @Body() body: any) {
+        const schema = z.object({
+            comment: z.string().min(1)
+        });
+        const payload = schema.parse(body);
+        return this.jiraTicketsService.addComment(issueKey, payload.comment);
+    }
+
+    @Post('issue/:issueKey/transition')
+    async transitionIssue(@Param('issueKey') issueKey: string, @Body() body: any) {
+        const schema = z.object({
+            state: z.string().min(1)
+        });
+        const payload = schema.parse(body);
+        return this.jiraTicketsService.transitionIssue(issueKey, payload.state);
+    }
+
+    @Post('issue/:issueKey/assign')
+    async assignIssue(@Param('issueKey') issueKey: string, @Body() body: any) {
+        const schema = z.object({
+            accountId: z.string().min(1)
+        });
+        const payload = schema.parse(body);
+        return this.jiraTicketsService.reassignIssue(issueKey, payload.accountId);
     }
 }

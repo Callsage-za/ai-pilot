@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { ElasticService } from '../elastic/elastic.service';
-import { PrismaService } from '../prisma/prisma.service';
 import { SearchHit } from 'src/utils/types';
 import { GeminiService } from '../gemini/gemini.service';
 
@@ -8,7 +7,6 @@ import { GeminiService } from '../gemini/gemini.service';
 export class CallSearchService {
     constructor(
         private readonly elasticService: ElasticService,
-        private readonly prisma: PrismaService,
         private readonly geminiService: GeminiService
     ) { }
     async searchCalls(query: string, filters: any = {}) {

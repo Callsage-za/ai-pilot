@@ -7,17 +7,11 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { GeminiModule } from './logic/gemini/gemini.module';
 import { JiraTicketsModule } from './logic/jira-tickets/jira-tickets.module';
 import { ChatMemoryController } from './logic/chat-memory/chat-memory.controller';
-import { ChatMemoryService } from './logic/chat-memory/chat-memory.service';
 import { ChatMemoryModule } from './logic/chat-memory/chat-memory.module';
-import { PrismaController } from './logic/prisma/prisma.controller';
-import { PrismaService } from './logic/prisma/prisma.service';
-import { PrismaModule } from './logic/prisma/prisma.module';
 import { SpeechController } from './logic/speech/speech.controller';
-import { SpeechService } from './logic/speech/speech.service';
 import { SpeechModule } from './logic/speech/speech.module';
 import { PolicyDocumentsModule } from './logic/policy-documents/policy-documents.module';
 import { ChatController } from './logic/chat/chat.controller';
-import { ChatService } from './logic/chat/chat.service';
 import { ChatModule } from './logic/chat/chat.module';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
@@ -25,7 +19,10 @@ import { resolve } from 'path';
 import { FileUploadModule } from './logic/file-upload/file-upload.module';
 import { CallSearchModule } from './logic/call-search/call-search.module';
 import { SocketGatewayModule } from './logic/socket-gateway/socket-gateway.module';
-import { CallSearchService } from './logic/call-search/call-search.service';
+import { AuthModule } from './logic/auth/auth.module';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
+import { ToolsModule } from './logic/tools/tools.module';
 
 @Module({
   imports: [
@@ -35,19 +32,35 @@ import { CallSearchService } from './logic/call-search/call-search.service';
       serveRoot: '/uploads', // optional, URL prefix
     }),
     ConfigModule.forRoot({ isGlobal: true }),
+    TypeOrmModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (configService: ConfigService) => ({
+        type: 'mysql',
+        host: configService.get('DB_HOST', 'localhost'),
+        port: configService.get('DB_PORT', 3306),
+        username: configService.get('DB_USERNAME', 'root'),
+        password: configService.get('DB_PASSWORD', ''),
+        database: configService.get('DB_DATABASE', 'ai_pilot'),
+        entities: [__dirname + '/**/*.entity{.ts,.js}'],
+        synchronize:true,
+        logging: configService.get('NODE_ENV') === 'development',
+      }),
+      inject: [ConfigService],
+    }),
     ElasticModule,
     GeminiModule,
     JiraTicketsModule,
     ChatMemoryModule, 
-    PrismaModule,
     SpeechModule,
     PolicyDocumentsModule,
     ChatModule,
     FileUploadModule,
     CallSearchModule, 
-    SocketGatewayModule
+    SocketGatewayModule,
+    AuthModule,
+    ToolsModule
   ],
-  controllers: [AppController, ChatMemoryController, PrismaController, SpeechController, ChatController],
-  providers: [AppService, ChatMemoryService, SpeechService, ChatService,CallSearchService],
+  controllers: [AppController, ChatMemoryController, SpeechController, ChatController],
+  providers: [AppService],
 })
 export class AppModule {}

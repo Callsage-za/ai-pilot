@@ -25,9 +25,9 @@ export enum PolicyDocumentParentId {
 
 
 export interface PolicyDocument {
-    id: string;
+    id?: string;
     title: string;
-    description?: string;
+    description: string;
     type: PolicyDocumentType;
     fileName: string;
     filePath: string;

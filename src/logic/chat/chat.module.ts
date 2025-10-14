@@ -8,6 +8,8 @@ import { PolicyDocumentsModule } from '../policy-documents/policy-documents.modu
 import { FileUploadModule } from '../file-upload/file-upload.module';
 import { SpeechModule } from '../speech/speech.module';
 import { CallSearchModule } from '../call-search/call-search.module';
+import { SocketGatewayModule } from '../socket-gateway/socket-gateway.module';
+import { ToolsModule } from '../tools/tools.module';
 
 @Module({
     imports: [
@@ -17,7 +19,9 @@ import { CallSearchModule } from '../call-search/call-search.module';
         PolicyDocumentsModule,
         FileUploadModule,
         SpeechModule,
-        CallSearchModule
+        CallSearchModule,
+        SocketGatewayModule,
+        ToolsModule
     ],
     controllers: [ChatController],
     providers: [ChatService],

@@ -1,9 +1,12 @@
-import { Controller, Post, Body, UseInterceptors, UploadedFile, UploadedFiles, Get } from '@nestjs/common';
+import { Controller, Post, Body, UseInterceptors, UploadedFile, UploadedFiles, Get, UseGuards, Request } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { SpeechService } from './speech.service';
 import { FileUploadService } from '../file-upload/file-upload.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { User } from '../../entities/user.entity';
 
 @Controller('speech')
+@UseGuards(JwtAuthGuard)
 export class SpeechController {
     constructor(
         private readonly speechService: SpeechService,
@@ -11,19 +14,19 @@ export class SpeechController {
     ) {}
 
     @Post('callSpeech')
-    async callSpeech(@Body() body: {path: string,name: string, audioPath: string}) {
-        return this.speechService.callSpeech(body.path,body.name, body.audioPath);
+    async callSpeech(@Request() req: { user: User }, @Body() body: {path: string,name: string, audioPath: string}) {
+        return this.speechService.callSpeech(body.path,body.name, req.user, body.audioPath);
     }
     @Get('all')
-    async getAllAudioFiles(){
-        return this. speechService.getAllAudioFiles()
+    async getAllAudioFiles(@Request() req: { user: User }){
+        return this.speechService.getAllAudioFiles(req.user)
     }
 
     @Post("uploadFile")
     @UseInterceptors(FileInterceptor('file'))
-    async uploadFile(@UploadedFile() file: Express.Multer.File, @Body() body: { conversationId?: string; messageId?: string }) {
+    async uploadFile(@Request() req: { user: User }, @UploadedFile() file: Express.Multer.File, @Body() body: { conversationId?: string; messageId?: string }) {
         // Save file and get ID
-        const { id, externalPath } = await this.fileUploadService.saveFileUpload(file, body.conversationId, body.messageId);
+        const { id, externalPath } = await this.fileUploadService.saveFileUpload(file, body.conversationId, body.messageId, req.user);
         return {
             message: 'File uploaded successfully',
             id,
@@ -33,9 +36,9 @@ export class SpeechController {
 
     @Post('transcribe')
     @UseInterceptors(FileInterceptor('file'))
-    async transcribe(@UploadedFile() file: Express.Multer.File) {
+    async transcribe(@Request() req: { user: User }, @UploadedFile() file: Express.Multer.File) {
         // Process the uploaded file
-        const result = await this.speechService.processUploadedFile(file);
+        const result = await this.speechService.transcribe(file, req.user);
 
         return {
             message: 'File uploaded and processed successfully',
@@ -48,10 +51,10 @@ export class SpeechController {
 
     @Post('uploadFiles')
     @UseInterceptors(FilesInterceptor('files', 10)) // Allow up to 10 files
-    async uploadFiles(@UploadedFiles() files: Express.Multer.File[]) {
+    async uploadFiles(@Request() req: { user: User }, @UploadedFiles() files: Express.Multer.File[]) {
         // Process all uploaded files
         const results = await Promise.all(
-            files.map(file => this.speechService.processUploadedFile(file))
+            files.map(file => this.speechService.processUploadedFile(file, req.user))
         );
 
         return {

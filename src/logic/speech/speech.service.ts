@@ -8,6 +8,7 @@ import { GeminiService } from '../gemini/gemini.service';
 import { ElasticService } from '../elastic/elastic.service';
 import { v4 as uuidv4 } from 'uuid';
 import { clipTranscript, splitIntoChunks } from 'src/utils/textNormalizer';
+import { User } from '../../entities/user.entity';
 import { JiraTicketsService } from '../jira-tickets/jira-tickets.service';
 import { AudioSeverity, Call } from 'src/utils/types';
 import { CallMemoryService } from '../chat-memory/call-memory.service';
@@ -30,13 +31,13 @@ export class SpeechService {
             keyFilename: this.configService.get('AUTH_PATH'),
         });
     }
-    async getAllAudioFiles() {
-        return this.callMemoryService.getAllAudioFiles()
+    async getAllAudioFiles(user: User) {
+        return this.callMemoryService.getAllAudioFiles(user.id, user.organizationId)
     }
 
-    async runTest() {
+    async runTest(user?: User) {
 
-        const calls = await this.getAllAudioFiles()
+        const calls = await this.getAllAudioFiles(user || { id: '', organizationId: '' } as User)
         this.socketService.emitMessage(calls)
 
     }
@@ -71,7 +72,7 @@ export class SpeechService {
         };
     }
 
-    async callSpeech(path: string, name: string, audioPath?: string) {
+    async callSpeech(path: string, name: string, user: User, audioPath?: string) {
         if (!audioPath) {
             audioPath = this.baseLink + "/uploads/audio/" + name;
         }
@@ -128,13 +129,16 @@ export class SpeechService {
             transcript: transcription,
             summary: answer.text,
         }
-        const call = await this.callMemoryService.saveCall(callDoc);
+        const call = await this.callMemoryService.saveCall(callDoc, user?.id || '', user?.organizationId || '');
+        // Notify connected clients that a new call has been processed
+        this.socketService.broadcast('calls.updated', { call });
+        this.socketService.emitMessage({ type: 'calls.updated', call });
         const embeddingText = answer.summary + "\n" + callDoc.transcript + "\n" + classification.classification;
         const [summaryEmbedding] = await this.geminiService.embedTexts([embeddingText]);
 
         await this.elasticService.elasticPost(`/calls/_update/${callDoc.id}`, {
             doc: {
-                id: call.id,
+                id: call?.id,
                 timestamp: new Date().toISOString(),
                 customerId: callDoc?.audioEntity?.accountId || "",
                 audioPath: audioPath,
@@ -143,7 +147,8 @@ export class SpeechService {
                 embedding: summaryEmbedding,   // see #2 about mapping & dims
                 intent: callDoc.classification,
                 department: "customer_service",
-                severity: callDoc.severity
+                severity: callDoc.severity,
+                companyId: user.organizationId
             },
             doc_as_upsert: true               // ✅ keep here only
         });
@@ -151,7 +156,7 @@ export class SpeechService {
             const chunk = transcriptChunk[i];
             const elasticChunkResponse = await this.elasticService.elasticPost(`/call_chunks/_update/${callDoc.id}--${i}`, {
                 doc: {
-                    call_id: call.id,
+                    call_id: call?.id,
                     chunk_id: i,
                     text: chunk.text,
                     speaker: "speaker_0",
@@ -160,6 +165,14 @@ export class SpeechService {
                 doc_as_upsert: true
             })
         }
+
+        const responsePayload = {
+            call,
+            classification,
+            transcript: transcription,
+            summary: answer.text,
+            audioPath,
+        };
 
         const jiraPayload = await this.maybeCreateJira(classification);
         if (jiraPayload) {
@@ -174,25 +187,19 @@ export class SpeechService {
                     intents: classification.intents,
                     entities: classification.entities,
                     evidence: classification.evidence,
+                    companyId: user.organizationId
                 }),
                 priority: classification.severity,
 
             });
             const updated = await this.jiraTicketsService.addAttachment(ticket.key as string, path);
-            return classification;
-
-            // const result = response.results[response.results.length - 1];
-            // const wordsInfo = result.alternatives[0].words;
-            // Note: The transcript within each result is separate and sequential per result.
-            // However, the words list within an alternative includes all the words
-            // from all the results thus far. Thus, to get all the words with speaker
-            // tags, you only have to take the words list from the last result:
-            // wordsInfo.forEach(a =>
-            //     console.log(` word: ${a.word}, speakerTag: ${a.speakerTag}`)
-            // );
-            // return response.results;
-
+            return {
+                ...responsePayload,
+                jira: ticket,
+            };
         }
+
+        return responsePayload;
     }
 
     async classifyCallHybrid({
@@ -275,7 +282,7 @@ export class SpeechService {
 
     async buildDescription({
         callId, summary, classification, sentiment, severity, intents = [],
-        entities, evidence = [], audit
+        entities, evidence = [], audit 
     }: any) {
         const evLines = (evidence || []).slice(0, 5).map((e: any) =>
             `- ${e.speaker ?? "customer"}: "${e.text}"` + (e.start_ms != null ? ` [${e.start_ms}–${e.end_ms}ms]` : "")
@@ -298,7 +305,7 @@ export class SpeechService {
             evLines ? `Evidence:\n${evLines}` : "",
         ].filter(Boolean).join("\n");
     }
-    async processUploadedFile(file: Express.Multer.File) {
+    async processUploadedFile(file: Express.Multer.File, user: User) {
         try {
             // Create uploads directory if it doesn't exist
             const uploadsDir = path.join(process.cwd(), 'uploads');
@@ -336,7 +343,7 @@ export class SpeechService {
             throw new Error(`Failed to process file: ${error.message}`);
         }
     }
-    async transcribe(file: Express.Multer.File) {
+    async transcribe(file: Express.Multer.File, user: User) {
         try {
             // Create uploads directory if it doesn't exist
             const uploadsDir = path.join(process.cwd(), 'uploads');
@@ -355,10 +362,10 @@ export class SpeechService {
             // Process the file based on its type
             let result;
             if (this.isAudioFile(file.mimetype)) {
-                result = await this.callSpeech(filePath, uniqueFilename, filePath);
+                result = await this.callSpeech(filePath, uniqueFilename, user, filePath);
             } else if (this.isDocumentFile(file.mimetype)) {
                 // result = await this.processDocument(filePath);
-            } else {
+            } else { 
                 result = { message: 'File uploaded but not processed (unsupported type)' };
             }
 
@@ -387,14 +394,14 @@ export class SpeechService {
             mimeType.includes('application/vnd.openxmlformats-officedocument');
     }
 
-    async processAudioFile(fileId: string, file: Express.Multer.File) {
+    async processAudioFile(fileId: string, file: Express.Multer.File, user: User) {
         // Create a temporary file path for processing
         const tempPath = `/tmp/${fileId}_${file.originalname}`;
         fs.writeFileSync(tempPath, file.buffer);
 
         try {
             // Process the audio file using the existing callSpeech method
-            const result = await this.callSpeech(tempPath, file.originalname);
+            const result = await this.callSpeech(tempPath, file.originalname, user, undefined);
 
             return {
                 success: true,
