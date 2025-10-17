@@ -9,6 +9,7 @@ import { ElasticService } from '../elastic/elastic.service';
 import { getPolicyPrompt } from './prompts';
 import { v4 as uuidv4 } from 'uuid';
 import { SocketGateway } from '../socket-gateway/socket.gateway';
+import { Organization } from 'src/entities/organization.entity';
 
 
 @Injectable()
@@ -24,7 +25,7 @@ export class PolicyDocumentsService {
   }
   private documents: PolicyDocument[] = [];
 
-  async createPolicyDocument(data: PolicyDocumentUploadData,localPath:string): Promise<PolicyDocument> {
+  async createPolicyDocument(data: PolicyDocumentUploadData,localPath:string, organizationId: string): Promise<PolicyDocument> {
     const document: PolicyDocument = {
       id:uuidv4(),
       title: data.title,
@@ -42,31 +43,34 @@ export class PolicyDocumentsService {
       createdAt: new Date(),
       updatedAt: new Date(),
       parentId: data?.parentId||undefined,
+      organization: { id: organizationId } as Organization,
     };
 
     await this.policyDocSaveService.savePolicyDocument(document);
-    await this.injestPolicyDocs(localPath, data.parentId, document.filePath);
+    await this.injestPolicyDocs(localPath, organizationId, data.parentId, document.filePath);
     this.socketGateway.broadcast('documents.updated', { document });
     this.socketGateway.emitMessage({ type: 'documents.updated', document });
     return document;
   }
 
-  async getPolicyDocumentById(id: string): Promise<PolicyDocument | null> {
-    return this.documents.find(doc => doc.id === id) || null;
+  async getPolicyDocumentById(id: string, organizationId?: string): Promise<PolicyDocument | null> {
+    const documents = await this.policyDocSaveService.getAllPolicyDocuments(organizationId);
+    return documents.find(doc => doc.id === id) || null;
   }
 
-  async getPolicyDocumentsByType(type: PolicyDocumentType): Promise<PolicyDocument[]> {
-    return this.documents
+  async getPolicyDocumentsByType(type: PolicyDocumentType, organizationId?: string): Promise<PolicyDocument[]> {
+    const documents = await this.policyDocSaveService.getAllPolicyDocuments(organizationId);
+    return documents
       .filter(doc => doc.type === type)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
 
-  async getAllPolicyDocuments(): Promise<PolicyDocument[]> {
-    const aa = await this.policyDocSaveService.getAllPolicyDocuments();
+  async getAllPolicyDocuments(organizationId?: string): Promise<PolicyDocument[]> {
+    const aa = await this.policyDocSaveService.getAllPolicyDocuments(organizationId);
     return aa;
   }
 
-  async getPolicyDocumentsBySection(section: string): Promise<PolicyDocument[]> {
+  async getPolicyDocumentsBySection(section: string, organizationId?: string): Promise<PolicyDocument[]> {
     // Map section names to PolicyDocumentType
     const sectionToTypeMap: Record<string, PolicyDocumentType> = {
       'policies': PolicyDocumentType.CODE_OF_CONDUCT,
@@ -78,43 +82,48 @@ export class PolicyDocumentsService {
       return [];
     }
 
-    return this.getPolicyDocumentsByType(type);
+    return this.getPolicyDocumentsByType(type, organizationId);
   }
 
-  async updatePolicyDocumentHeaders(id: string, headers: any): Promise<PolicyDocument> {
-    const document = this.documents.find(doc => doc.id === id);
+  async updatePolicyDocumentHeaders(id: string, headers: any, organizationId?: string): Promise<PolicyDocument> {
+    const document = await this.getPolicyDocumentById(id, organizationId);
     if (!document) {
       throw new Error('Document not found');
     }
 
     document.headers = headers;
     document.updatedAt = new Date();
+    await this.policyDocSaveService.savePolicyDocument(document);
     return document;
   }
 
-  async markPolicyDocumentAsProcessed(id: string): Promise<PolicyDocument> {
-    const document = this.documents.find(doc => doc.id === id);
+  async markPolicyDocumentAsProcessed(id: string, organizationId?: string): Promise<PolicyDocument> {
+    const document = await this.getPolicyDocumentById(id, organizationId);
     if (!document) {
       throw new Error('Document not found');
     }
 
     document.isProcessed = true;
     document.updatedAt = new Date();
+    await this.policyDocSaveService.savePolicyDocument(document);
     return document;
   }
 
-  async deletePolicyDocument(id: string): Promise<PolicyDocument> {
-    const index = this.documents.findIndex(doc => doc.id === id);
-    if (index === -1) {
+  async deletePolicyDocument(id: string, organizationId?: string): Promise<PolicyDocument> {
+    const document = await this.getPolicyDocumentById(id, organizationId);
+    if (!document) {
       throw new Error('Document not found');
     }
 
-    return this.documents.splice(index, 1)[0];
+    // Delete from database
+    await this.policyDocSaveService.deletePolicyDocument(id);
+    return document;
   }
 
-  async searchPolicyDocuments(query: string): Promise<PolicyDocument[]> {
+  async searchPolicyDocuments(query: string, organizationId?: string): Promise<PolicyDocument[]> {
+    const documents = await this.policyDocSaveService.getAllPolicyDocuments(organizationId);
     const lowercaseQuery = query.toLowerCase();
-    return this.documents
+    return documents
       .filter(doc =>
         doc.title.toLowerCase().includes(lowercaseQuery) ||
         (doc.description && doc.description.toLowerCase().includes(lowercaseQuery))
@@ -126,11 +135,13 @@ export class PolicyDocumentsService {
     return Object.values(PolicyDocumentType);
   }
 
-  async policyDocumentsSearch(query: string): Promise<SearchResult> {
-    return this.searchDocs(query, 5, "asdasd", "123456");
+  async policyDocumentsSearch(query: string,userId: string, organizationId: string): Promise<SearchResult> {
+    return this.searchDocs(query, 5, "asdasd", userId, organizationId);
   }
 
-  async injestPolicyDocs(filePath: string, department?: string, externalPath?: string) {
+  async injestPolicyDocs(filePath: string, organizationId: string, department?: string, externalPath?: string) {
+    console.log("injestPolicyDocs", filePath, department, externalPath, organizationId);
+    
     const { text } = await extractTextFromFile(filePath);
     const systemPrompt = "You extract sections VERBATIM from the provided TEXT. Do NOT paraphrase or correct words. Copy text exactly as it appears.";
     const userPrompt = getPolicyPrompt(text);
@@ -151,7 +162,8 @@ export class PolicyDocumentsService {
         vec,                         // <- maps to "vec" dense_vector
         version: answer.version,
         department: department ?? "General",
-        externalPath: externalPath ?? ""
+        externalPath: externalPath ?? "",
+        organizationId: organizationId
       };
       // Use deterministic ID so re-ingest overwrites cleanly
       const _id = `${answer.document_id ?? answer.id}__${s.id}`;
@@ -172,7 +184,8 @@ export class PolicyDocumentsService {
           chunk_id: i,
           text: text.text,
           vec,
-          version: answer.version
+          version: answer.version,
+          organizationId: organizationId
         };
         const _id = `${answer.document_id || answer.id}__${s.id}__${i}`;
         chunksBulk.push({ index: { _index: "policy_chunks", _id } });
@@ -185,14 +198,14 @@ export class PolicyDocumentsService {
     return answer;
   }
 
-  async searchDocs(query: string, size: number = 5, conversationId: string, userId: string): Promise<SearchResult> {
+  async searchDocs(query: string, size: number = 5, conversationId: string, userId: string, organizationId: string): Promise<SearchResult> {
     console.log("searching docs", query, size, conversationId, userId);
     const history = await this.mem.getRecentHistoryAsc(conversationId);
 
 
     try {
       // --- BM25 keyword search ---
-      const bm25 = await this.elasticService.elasticPost<{ hits: { hits: any[] } }>("/policy_sections/_search", {
+      const bm25Query: any = {
         query: {
           multi_match: {
             query,
@@ -201,22 +214,45 @@ export class PolicyDocumentsService {
           }
         },
         size
-      });
+      };
+
+      // Add organization ID filter if provided
+      if (organizationId) {
+        bm25Query.query = {
+          bool: {
+            must: [bm25Query.query],
+            filter: [
+              { term: { "organizationId": organizationId } }
+            ]
+          }
+        };
+      }
+
+      const bm25 = await this.elasticService.elasticPost<{ hits: { hits: any[] } }>("/policy_sections/_search", bm25Query);
 
 
 
       // --- Vector kNN (semantic) search ---
       const [qvec] = await this.geminiService.embedTexts([query]);
 
-      const knn = await this.elasticService.elasticPost<{ hits: { hits: any[] } }>("/policy_sections/_search", {
+      const knnQuery: any = {
         knn: {
-          field: "chunk_embedding",
+          field: "vec",
           query_vector: qvec,
           k: 100,
           num_candidates: 1000
         },
         size
-      });
+      };
+
+      // Add organization ID filter if provided
+      if (organizationId) {
+        knnQuery.knn.filter = {
+          term: { "organizationId": organizationId }
+        };
+      }
+
+      const knn = await this.elasticService.elasticPost<{ hits: { hits: any[] } }>("/policy_sections/_search", knnQuery);
 
       // --- Reciprocal Rank Fusion (simple merge) ---
       const map = new Map<string, any>();

@@ -13,3 +13,4 @@ export { Document } from './document.entity';
 export { PolicyDocument } from './policy-document.entity';
 export { User } from './user.entity';
 export { Organization } from './organization.entity';
+export { JiraCredentials } from './jira-credentials.entity';

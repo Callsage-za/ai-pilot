@@ -14,7 +14,8 @@ export class ChatController {
         query: string,
         conversationId: string,
         fileNames: string[],
-
+        selectedTool?: string,
+        toolParams?: any
     }) {
         return this.chatService.ask(body, req.user);
     }

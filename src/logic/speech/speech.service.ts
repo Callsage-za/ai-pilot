@@ -78,7 +78,7 @@ export class SpeechService {
 
     async callSpeech(path: string, name: string, user: User, audioPath?: string) {
         if (!audioPath) {
-            audioPath = this.baseLink + "/uploads/audio/" + name;
+            audioPath = this.baseLink + "/uploads/" + name;
         }
         const audio = {
             content: fs.readFileSync(path).toString('base64'),
@@ -140,7 +140,7 @@ export class SpeechService {
         const embeddingText = answer.summary + "\n" + callDoc.transcript + "\n" + classification.classification;
         const [summaryEmbedding] = await this.geminiService.embedTexts([embeddingText]);
 
-        await this.elasticService.elasticPost(`/calls/_update/${callDoc.id}`, {
+        await this.elasticService.elasticPost(`/calls/_update/${call?.id}`, {
             doc: {
                 id: call?.id,
                 timestamp: new Date().toISOString(),
@@ -152,7 +152,7 @@ export class SpeechService {
                 intent: callDoc.classification,
                 department: "customer_service",
                 severity: callDoc.severity,
-                companyId: user.organizationId
+                organizationId: user.organizationId
             },
             doc_as_upsert: true               // ✅ keep here only
         });
@@ -164,7 +164,9 @@ export class SpeechService {
                     chunk_id: i,
                     text: chunk.text,
                     speaker: "speaker_0",
-                    embedding: transcriptEmbedding[i]
+                    embedding: transcriptEmbedding[i],
+                    organizationId: user.organizationId
+
                 },
                 doc_as_upsert: true
             })
@@ -194,9 +196,9 @@ export class SpeechService {
                     companyId: user.organizationId
                 }),
                 priority: classification.severity,
-
+                organizationId: user.organizationId
             });
-            const updated = await this.jiraTicketsService.addAttachment(ticket.key as string, path);
+            const updated = await this.jiraTicketsService.addAttachment(ticket.key as string, path, user.organizationId);
             return {
                 ...responsePayload,
                 jira: ticket,
@@ -286,7 +288,7 @@ export class SpeechService {
 
     async buildDescription({
         callId, summary, classification, sentiment, severity, intents = [],
-        entities, evidence = [], audit 
+        entities, evidence = [], audit
     }: any) {
         const evLines = (evidence || []).slice(0, 5).map((e: any) =>
             `- ${e.speaker ?? "customer"}: "${e.text}"` + (e.start_ms != null ? ` [${e.start_ms}–${e.end_ms}ms]` : "")
@@ -366,10 +368,10 @@ export class SpeechService {
             // Process the file based on its type
             let result;
             if (this.isAudioFile(file.mimetype)) {
-                result = await this.callSpeech(filePath, uniqueFilename, user, filePath);
+                result = await this.callSpeech(filePath, uniqueFilename, user);
             } else if (this.isDocumentFile(file.mimetype)) {
                 // result = await this.processDocument(filePath);
-            } else { 
+            } else {
                 result = { message: 'File uploaded but not processed (unsupported type)' };
             }
 

@@ -19,7 +19,7 @@ export class ToolsService {
     private readonly jiraTicketsService: JiraTicketsService,
   ) {}
 
-  async transcribeAudio(fileIds: string[] = []) {
+  async transcribeAudio(fileIds: string[] = [], conversationId?: string, userId?: string) {
     if (!fileIds?.length) {
       throw new BadRequestException('Audio transcription requires at least one uploaded file');
     }
@@ -91,9 +91,25 @@ export class ToolsService {
       key: result.audioPath,
     }));
 
+    const message = messageLines.join('\n');
+
+    // Save transcription result as assistant message in conversation if conversationId and userId are provided
+    if (conversationId && userId) {
+      const assistantMessageData = {
+        conversationId,
+        userId,
+        role: 'assistant',
+        content: message,
+        type: 'tool.transcribe_audio',
+        source: sources
+      };
+
+      await this.chatMemoryService.addMessageWithLanguage(assistantMessageData);
+    }
+
     return {
       tool: ToolActionType.TRANSCRIBE_AUDIO,
-      message: messageLines.join('\n'),
+      message,
       data: results,
       sources,
     };
@@ -135,12 +151,12 @@ Return a concise markdown summary with sections for **Overview**, **Key Points**
     };
   }
 
-  async policyAudit(query: string, conversationId?: string) {
+  async policyAudit(query: string, conversationId: string, userId: string, organizationId: string) {
     if (!query?.trim()) {
       throw new BadRequestException('Policy audit requires a question or description');
     }
 
-    const result = await this.policyDocumentsService.policyDocumentsSearch(query);
+    const result = await this.policyDocumentsService.policyDocumentsSearch(query, userId, organizationId);
 
     return {
       tool: ToolActionType.POLICY_AUDIT,
@@ -150,12 +166,12 @@ Return a concise markdown summary with sections for **Overview**, **Key Points**
     };
   }
 
-  async browsePolicies(query: string) {
+  async browsePolicies(query: string, userId: string, organizationId: string) {
     if (!query?.trim()) {
       throw new BadRequestException('Provide a topic to browse policies');
     }
 
-    const result = await this.policyDocumentsService.policyDocumentsSearch(query);
+    const result = await this.policyDocumentsService.policyDocumentsSearch(query, userId, organizationId);
 
     return {
       tool: ToolActionType.BROWSE_POLICIES,
@@ -165,7 +181,7 @@ Return a concise markdown summary with sections for **Overview**, **Key Points**
     };
   }
 
-  async createJiraIssueFromPrompt(input: string, conversationId?: string) {
+  async createJiraIssueFromPrompt(input: string, conversationId?: string, user?: any) {
     if (!input?.trim()) {
       throw new BadRequestException('Describe the issue that should become a Jira ticket');
     }
@@ -240,13 +256,14 @@ Return JSON ONLY with keys: title, description, priority, labels?, dueDate?, ass
       projectKey,
       issueType,
       extraFields,
+      organizationId: user?.organizationId || 'default'
     });
 
     const followUpMessages: string[] = [`Created Jira issue **${ticket.key}** with priority **${priority}**.`];
 
     if (plan.comment) {
       try {
-        await this.jiraTicketsService.addComment(ticket.key, String(plan.comment));
+        await this.jiraTicketsService.addComment(ticket.key, String(plan.comment), user?.organizationId || 'default');
         followUpMessages.push('Added follow-up comment to the ticket.');
       } catch (error) {
         console.error('Failed to add comment to Jira issue', error);
@@ -256,7 +273,7 @@ Return JSON ONLY with keys: title, description, priority, labels?, dueDate?, ass
 
     if (plan.status) {
       try {
-        const transition = await this.jiraTicketsService.transitionIssue(ticket.key, String(plan.status));
+        const transition = await this.jiraTicketsService.transitionIssue(ticket.key, String(plan.status), user?.organizationId || 'default');
         followUpMessages.push(`Moved ticket to **${transition.transition}**.`);
       } catch (error) {
         console.error('Failed to transition Jira issue', error);

@@ -9,7 +9,7 @@ export class CallSearchService {
         private readonly elasticService: ElasticService,
         private readonly geminiService: GeminiService
     ) { }
-    async searchCalls(query: string, filters: any = {}) {
+    async searchCalls(query: string, filters: any = {}, organizationId?: string) {
         delete filters.time_range;
         try {
             // Parse relative date expressions
@@ -38,6 +38,13 @@ export class CallSearchService {
                 ]
             };
 
+            // Add organization ID filter if provided
+            if (organizationId) {
+                (searchQuery.query.bool.filter as any[]).push({
+                    term: { "organizationId": organizationId }
+                });
+            }
+
             // Add filters if provided
             if (filters.tags && filters.tags.length > 0) {
                 (searchQuery.query.bool.filter as any[]).push({
@@ -57,7 +64,7 @@ export class CallSearchService {
             }
 
             const response = await this.elasticService.elasticPost('/calls/_search', searchQuery);
-            const hits = await this.searchVectors(query);
+            const hits = await this.searchVectors(query, organizationId);
             
             return {
                 answer: this.formatCallResults(hits, query),
@@ -104,16 +111,26 @@ export class CallSearchService {
 
         return answer;
     }
-    async searchVectors(query: string) {
+    async searchVectors(query: string, organizationId?: string) {
         const [qvec] = await this.geminiService.embedTexts([query]);
-        const knn = await this.elasticService.elasticPost('/calls/_search', {
+        
+        const knnQuery: any = {
             knn: {
                 field: "embedding",
                 query_vector: qvec,
                 k: 100,
                 num_candidates: 1000
             }
-        });
+        };
+
+        // Add organization ID filter if provided
+        if (organizationId) {
+            knnQuery.knn.filter = {
+                term: { "organizationId": organizationId }
+            };
+        }
+
+        const knn = await this.elasticService.elasticPost('/calls/_search', knnQuery);
         const map = new Map<string, any>();
         function add(list: any[], weight = 1) {
             list.forEach((hit: any, i: number) => {
@@ -135,7 +152,7 @@ export class CallSearchService {
         }));
         return hits;
     }
-    async getCallAnalytics(filters: any = {}) {
+    async getCallAnalytics(filters: any = {}, organizationId?: string) {
         try {
             // Parse relative date expressions
             if (filters.time_range) {
@@ -163,13 +180,31 @@ export class CallSearchService {
                 }
             };
 
+            // Build query with filters
+            const queryFilters: any[] = [];
+            
             if (filters.time_range) {
-                analyticsQuery.query = {
+                queryFilters.push({
                     range: {
                         timestamp: {
                             gte: filters.time_range.from,
                             lte: filters.time_range.to
                         }
+                    }
+                });
+            }
+
+            // Add organization ID filter if provided
+            if (organizationId) {
+                queryFilters.push({
+                    term: { "organizationId": organizationId }
+                });
+            }
+
+            if (queryFilters.length > 0) {
+                analyticsQuery.query = {
+                    bool: {
+                        filter: queryFilters
                     }
                 };
             }

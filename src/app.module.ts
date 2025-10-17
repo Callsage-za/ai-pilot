@@ -23,6 +23,7 @@ import { AuthModule } from './logic/auth/auth.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { ToolsModule } from './logic/tools/tools.module';
+import { JiraCredentialsModule } from './logic/jira-credentials/jira-credentials.module';
 
 @Module({
   imports: [
@@ -58,7 +59,8 @@ import { ToolsModule } from './logic/tools/tools.module';
     CallSearchModule, 
     SocketGatewayModule,
     AuthModule,
-    ToolsModule
+    ToolsModule,
+    JiraCredentialsModule
   ],
   controllers: [AppController, ChatMemoryController, SpeechController, ChatController],
   providers: [AppService],

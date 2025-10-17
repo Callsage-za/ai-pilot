@@ -1,5 +1,6 @@
 import { PolicyDocumentParentId, PolicyDocumentType } from '../utils/types';
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne } from 'typeorm';
+import { Organization } from './organization.entity';
 @Entity('policy_documents')
 export class PolicyDocument {
   @PrimaryGeneratedColumn('uuid')
@@ -50,6 +51,10 @@ export class PolicyDocument {
 
   @Column({ nullable: true })
   effectiveDate?: Date;
+
+
+  @ManyToOne(() => Organization, organization => organization.id, { nullable: true ,eager: true})
+  organization: Organization;
 
   @CreateDateColumn()
   createdAt: Date;

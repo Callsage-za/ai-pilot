@@ -1,4 +1,5 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index, JoinColumn, ManyToOne } from 'typeorm';
+import { Organization } from './organization.entity';
 
 @Entity('calls')
 export class Call {
@@ -47,21 +48,20 @@ export class Call {
   @Column({ nullable: true })
   severity: string; // "low" | "medium" | "high"
 
-  @Column('json', { nullable: true })
-  intentsJson: any; // e.g. ["billing_inquiry","refund_request"]
+  @Column({ type: 'json', nullable: true })
+  entities: JSON; // { account_id, ... }
 
-  @Column('json', { nullable: true })
-  entities: any; // { account_id, ... }
-
-  @Column('json', { nullable: true })
-  evidence: any; // [{ speaker, text, start_ms, end_ms }]
+  @Column({ type: 'json', nullable: true })
+  evidence: JSON; // [{ speaker, text, start_ms, end_ms }]
 
   @Column({ nullable: true })
   classifierConf: number;
 
-  @Column('json', { nullable: true })
-  policyAudit: any; // overall + findings
-
+  @Column({ type: 'json', nullable: true })
+  policyAudit: JSON; // overall + findings
+  @ManyToOne(() => Organization, organization => organization.id)
+  @JoinColumn({ name: 'organizationId' })
+  organization: Organization; // Which organization this call belongs to
   @CreateDateColumn()
   createdAt: Date;
 

@@ -11,6 +11,7 @@ import {
   UploadedFile,
   HttpException,
   HttpStatus,
+  Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import * as path from 'path';
@@ -18,7 +19,8 @@ import * as fs from 'fs';
 import { PolicyDocumentsService } from './policy-documents.service';
 import { PolicyDocumentType, PolicyDocumentParentId, PolicyDocumentUploadData, PolicyDocument } from 'src/utils/types';
 import { ConfigService } from '@nestjs/config';
-
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { UseGuards } from '@nestjs/common';
 @Controller('policy-documents')
 export class PolicyDocumentsController {
   private baseLink:string;
@@ -31,6 +33,7 @@ export class PolicyDocumentsController {
 
   @Post('upload')
   @UseInterceptors(FileInterceptor('file'))
+  @UseGuards(JwtAuthGuard)
   async uploadPolicyDocument(
     @UploadedFile() file: Express.Multer.File,
     @Body() body: {
@@ -43,6 +46,7 @@ export class PolicyDocumentsController {
       effectiveDate?: string;
       parentId?: PolicyDocumentParentId; 
     },
+    @Req() req: any,
   ) {
     try {
       if (!file) {
@@ -114,7 +118,8 @@ export class PolicyDocumentsController {
         version: body.version,
         effectiveDate: effectiveDate,
       };
-      const document = await this.policyDocumentsService.createPolicyDocument(documentData,filePath);
+      console.log("req.user.organization.id", req.user);
+      const document = await this.policyDocumentsService.createPolicyDocument(documentData,filePath, req.user.organization.id);
 
       return {
         success: true,
@@ -144,31 +149,36 @@ export class PolicyDocumentsController {
   }
 
   @Get('documents')
-  async getAllPolicyDocuments(): Promise<PolicyDocument[]> {
-    return this.policyDocumentsService.getAllPolicyDocuments();
+  @UseGuards(JwtAuthGuard)
+  async getAllPolicyDocuments(@Req() req: any): Promise<PolicyDocument[]> {
+    return this.policyDocumentsService.getAllPolicyDocuments(req.user.organizationId);
   }
 
   @Get('documents/type/:type')
-  async getPolicyDocumentsByType(@Param('type') type: PolicyDocumentType): Promise<PolicyDocument[]> {
-    return this.policyDocumentsService.getPolicyDocumentsByType(type);
+  @UseGuards(JwtAuthGuard)
+  async getPolicyDocumentsByType(@Param('type') type: PolicyDocumentType, @Req() req: any): Promise<PolicyDocument[]> {
+    return this.policyDocumentsService.getPolicyDocumentsByType(type, req.user.organizationId);
   }
 
   @Get('documents/section/:section')
-  async getPolicyDocumentsBySection(@Param('section') section: string): Promise<PolicyDocument[]> {
-    return this.policyDocumentsService.getPolicyDocumentsBySection(section);
+  @UseGuards(JwtAuthGuard)
+  async getPolicyDocumentsBySection(@Param('section') section: string, @Req() req: any): Promise<PolicyDocument[]> {
+    return this.policyDocumentsService.getPolicyDocumentsBySection(section, req.user.organizationId);
   }
 
   @Get('documents/search')
-  async searchPolicyDocuments(@Query('q') query: string): Promise<PolicyDocument[]> {
+  @UseGuards(JwtAuthGuard)
+  async searchPolicyDocuments(@Query('q') query: string, @Req() req: any): Promise<PolicyDocument[]> {
     if (!query) {
       throw new HttpException('Query parameter is required', HttpStatus.BAD_REQUEST);
     }
-    return this.policyDocumentsService.searchPolicyDocuments(query);
+    return this.policyDocumentsService.searchPolicyDocuments(query, req.user.organizationId);
   }
 
   @Get('documents/:id')
-  async getPolicyDocumentById(@Param('id') id: string): Promise<PolicyDocument> {
-    const document = await this.policyDocumentsService.getPolicyDocumentById(id);
+  @UseGuards(JwtAuthGuard)
+  async getPolicyDocumentById(@Param('id') id: string, @Req() req: any): Promise<PolicyDocument> {
+    const document = await this.policyDocumentsService.getPolicyDocumentById(id, req.user.organizationId);
     if (!document) {
       throw new HttpException('Policy document not found', HttpStatus.NOT_FOUND);
     }
@@ -176,26 +186,31 @@ export class PolicyDocumentsController {
   }
 
   @Get('types')
+  @UseGuards(JwtAuthGuard)
   async getPolicyDocumentTypes(): Promise<PolicyDocumentType[]> {
     return this.policyDocumentsService.getPolicyDocumentTypes();
   }
 
   @Put('documents/:id/headers')
+  @UseGuards(JwtAuthGuard)
   async updatePolicyDocumentHeaders(
     @Param('id') id: string,
     @Body() body: { headers: any },
+    @Req() req: any,
   ): Promise<PolicyDocument> {
-    return this.policyDocumentsService.updatePolicyDocumentHeaders(id, body.headers);
+    return this.policyDocumentsService.updatePolicyDocumentHeaders(id, body.headers, req.user.organizationId);
   }
 
   @Put('documents/:id/processed')
-  async markPolicyDocumentAsProcessed(@Param('id') id: string): Promise<PolicyDocument> {
-    return this.policyDocumentsService.markPolicyDocumentAsProcessed(id);
+  @UseGuards(JwtAuthGuard)
+  async markPolicyDocumentAsProcessed(@Param('id') id: string, @Req() req: any): Promise<PolicyDocument> {
+    return this.policyDocumentsService.markPolicyDocumentAsProcessed(id, req.user.organizationId);
   }
 
   @Delete('documents/:id')
-  async deletePolicyDocument(@Param('id') id: string): Promise<PolicyDocument> {
-    const document = await this.policyDocumentsService.getPolicyDocumentById(id);
+  @UseGuards(JwtAuthGuard)
+  async deletePolicyDocument(@Param('id') id: string, @Req() req: any): Promise<PolicyDocument> {
+    const document = await this.policyDocumentsService.getPolicyDocumentById(id, req.user.organizationId);
     if (!document) {
       throw new HttpException('Policy document not found', HttpStatus.NOT_FOUND);
     }
@@ -205,6 +220,6 @@ export class PolicyDocumentsController {
       fs.unlinkSync(document.filePath);
     }
 
-    return this.policyDocumentsService.deletePolicyDocument(id);
+    return this.policyDocumentsService.deletePolicyDocument(id, req.user.organizationId);
   }
 }

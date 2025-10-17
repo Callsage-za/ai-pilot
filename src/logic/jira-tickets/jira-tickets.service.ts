@@ -3,9 +3,10 @@ import { ElasticService } from '../elastic/elastic.service';
 import { GeminiService } from '../gemini/gemini.service';
 import { normalizeName } from 'src/utils/textNormalizer';
 import { ConfigService } from '@nestjs/config';
-import { JiraUtils } from 'src/utils/jiraUtils';
+import { JiraUtils, JiraCredentials } from 'src/utils/jiraUtils';
 import { JiraPlan } from './types';
 import { User } from '../../entities/user.entity';
+import { JiraCredentialsService } from '../jira-credentials/jira-credentials.service';
 
 interface JiraIssue {
     key: string;
@@ -29,19 +30,34 @@ interface JiraResponse {
 
 @Injectable()
 export class JiraTicketsService implements OnModuleInit {
-    private readonly jiraUtils: JiraUtils;
     private jiraPriorities: any;
     constructor(
         private readonly configService: ConfigService,
         private readonly elasticService: ElasticService,
-        private readonly geminiService: GeminiService
-    ) {
-        this.jiraUtils = new JiraUtils(configService);
-    }
+        private readonly geminiService: GeminiService,
+        private readonly jiraCredentialsService: JiraCredentialsService
+    ) {}
     async onModuleInit() {
-        const res = await this.jiraUtils.jiraGet("/rest/api/3/priority");
-        this.jiraPriorities = res;
-        // return res; // [{id:"1", name:"Highest"}, ...]
+        // Initialize with default credentials if available
+        try {
+            const jiraUtils = new JiraUtils();
+            const res = await jiraUtils.jiraGet("/rest/api/3/priority");
+            this.jiraPriorities = res;
+        } catch (error) {
+            console.warn('Could not initialize Jira priorities:', error.message);
+        }
+    }
+
+    private async getJiraUtils(organizationId: string): Promise<JiraUtils> {
+        const credentials = await this.jiraCredentialsService.getCredentials(organizationId);
+        if (!credentials) {
+            throw new Error('Jira credentials not found for this organization');
+        }
+        return new JiraUtils({
+            jiraUrl: credentials.jiraUrl,
+            jiraUser: credentials.jiraUser,
+            jiraApiKey: credentials.jiraApiKey
+        });
     }
     async mapSeverityToPriorityId(severity: "high" | "medium" | "low") {
         console.log('severity', severity);
@@ -56,16 +72,27 @@ export class JiraTicketsService implements OnModuleInit {
         // if (severity === "medium") return byName.get("medium") ?? pri.find((p:any)=>/med/i.test(p.name))?.id ?? pri[0].id;
         // return byName.get("low") ?? byName.get("lowest") ?? pri[pri.length-1].id;
     }
-    async ingestProject(projectKey: string) {
-        const data = await this.jiraUtils.getAllIssues(projectKey, [
+    async ingestProject(projectKey: string, organizationId: string) {
+        const jiraUtils = await this.getJiraUtils(organizationId);
+        const data = await jiraUtils.getAllIssues(projectKey, [
             "summary", "description", "assignee", "status", "updated"
         ]);
         // return data.issues[1].fields.description.content;
         for (const issue of data.issues.splice(0, 100)) {
-            await this.handleJiraIssue(issue, projectKey);
+            await this.handleJiraIssue(issue, projectKey, organizationId);
         }
     }
-    async handleJiraIssue(issue, projectKey: string) {
+    async getProjects(organizationId: string) {
+        const jiraUtils = await this.getJiraUtils(organizationId);
+        return await jiraUtils.getProjects();
+    }
+
+    async getProjectIssueTypes(projectKey: string, organizationId: string) {
+        const jiraUtils = await this.getJiraUtils(organizationId);
+        return await jiraUtils.getProjectIssueTypes(projectKey);
+    }
+
+    async handleJiraIssue(issue, projectKey: string, organizationId?: string) {
         const f = issue.fields;
         const descriptionText = this.getDescriptionText(f.description);
         const search_text = f.summary + ' ' + descriptionText + ' ' + projectKey + ' ' + issue.key;
@@ -81,7 +108,8 @@ export class JiraTicketsService implements OnModuleInit {
             assignee_normalized: normalizeName(f.assignee?.displayName),
             updated: f.updated,
             search_text,
-            embedding: vec
+            embedding: vec,
+            organizationId: organizationId
         };
 
         // upsert into Elastic
@@ -126,9 +154,6 @@ export class JiraTicketsService implements OnModuleInit {
             }
         }
     }
-    async getProjects() {
-        return this.jiraUtils.getProjects();
-    }
     private getDescriptionText(description?: any): string {
         if (typeof description === 'string') return description;
         const parts: string[] = [];
@@ -147,7 +172,7 @@ export class JiraTicketsService implements OnModuleInit {
     }
 
 
-    async ask(query: any) {
+    async ask(query: any, organizationId?: string) {
         const plan = await this.extractJiraPlan(query.query);
 
         let assignee = { accountId: undefined, displayName: undefined } as { accountId?: string; displayName?: string };
@@ -161,7 +186,8 @@ export class JiraTicketsService implements OnModuleInit {
             size: 10,
             filters,
             plan,
-            who: assignee
+            who: assignee,
+            organizationId
         });
 
         try {
@@ -312,15 +338,24 @@ export class JiraTicketsService implements OnModuleInit {
         size,
         filters,
         plan,
-        who
+        who,
+        organizationId
     }: {
         userQuery?: string;
         size: number;
         filters: any[];
         plan: JiraPlan;
         who: { accountId?: string; displayName?: string };
+        organizationId?: string;
     }) {
         const keywords = (plan.keywords ?? "").trim();
+        
+        // Add organization ID filter if provided
+        const allFilters = [...filters];
+        if (organizationId) {
+            allFilters.push({ term: { "organizationId": organizationId } });
+        }
+        
         const bm25Body = {
             query: {
                 bool: {
@@ -335,7 +370,7 @@ export class JiraTicketsService implements OnModuleInit {
                             }
                         ]
                     }),
-                    filter: filters
+                    filter: allFilters
                 }
             },
             size
@@ -347,18 +382,19 @@ export class JiraTicketsService implements OnModuleInit {
         let knnHits: any[] = [];
         if (userQuery) {
             const [qvec] = await this.geminiService.embedTexts([userQuery]);
-            const knn = await this.elasticService.elasticPost<{ hits: { hits: any[] } }>("/jira_issues/_search", {
+            const knnQuery: any = {
                 knn: {
                     field: "embedding",
                     query_vector: qvec,
                     k: Math.max(200, size * 10),
                     num_candidates: 1000,
-                    filter: filters.length ? { bool: { filter: filters } } : undefined
+                    filter: allFilters.length ? { bool: { filter: allFilters } } : undefined
                 },
                 size: size,
                 min_score: 0.8            // <— move threshold here (top-level)
-
-            });
+            };
+            
+            const knn = await this.elasticService.elasticPost<{ hits: { hits: any[] } }>("/jira_issues/_search", knnQuery);
             knnHits = knn.hits.hits;
         }
 
@@ -506,7 +542,8 @@ export class JiraTicketsService implements OnModuleInit {
         dueDate,
         assigneeAccountId,
         issueType = "Task",
-        extraFields = {}
+        extraFields = {},
+        organizationId
     }: {
         title: string;
         description: string;
@@ -517,13 +554,15 @@ export class JiraTicketsService implements OnModuleInit {
         projectKey?: string;
         issueType?: string;
         extraFields?: Record<string, any>;
+        organizationId: string;
     }) {
         const priorityStruct = await this.mapSeverityToPriorityId(priority);
 
         // Get available issue types for the project
         let validIssueType = issueType;
         try {
-            const issueTypes = await this.jiraUtils.getProjectIssueTypes("SAG");
+            const jiraUtils = await this.getJiraUtils(organizationId);
+            const issueTypes = await jiraUtils.getProjectIssueTypes("SAG");
             const availableTypes = issueTypes.map((type: any) => type.name);
 
             // Check if the requested issue type exists, otherwise use the first available type
@@ -562,27 +601,31 @@ export class JiraTicketsService implements OnModuleInit {
         Object.assign(fields, extraFields ?? {});
         console.log(fields);
 
-        const jiraIssue = await this.jiraUtils.jiraPost(`/rest/api/3/issue`, {
+        const jiraUtils = await this.getJiraUtils(organizationId);
+        const jiraIssue = await jiraUtils.jiraPost(`/rest/api/3/issue`, {
             fields
         });
         return jiraIssue;
     }
 
-    async addAttachment(issueKey: string, filePath: string) {
-        return this.jiraUtils.addAttachment(issueKey, filePath);
+    async addAttachment(issueKey: string, filePath: string, organizationId: string) {
+        const jiraUtils = await this.getJiraUtils(organizationId);
+        return jiraUtils.addAttachment(issueKey, filePath);
     }
 
-    async addComment(issueKey: string, comment: string) {
+    async addComment(issueKey: string, comment: string, organizationId: string) {
+        const jiraUtils = await this.getJiraUtils(organizationId);
         const adfComment = this.buildAdfDocument(comment);
-        await this.jiraUtils.jiraPost(`/rest/api/3/issue/${issueKey}/comment`, {
+        await jiraUtils.jiraPost(`/rest/api/3/issue/${issueKey}/comment`, {
             body: adfComment
         });
         return { success: true };
     }
 
-    async getAvailableIssueTypes(projectKey: string = "SAG") {
+    async getAvailableIssueTypes(projectKey: string = "SAG", organizationId: string) {
         try {
-            const issueTypes = await this.jiraUtils.getProjectIssueTypes(projectKey);
+            const jiraUtils = await this.getJiraUtils(organizationId);
+            const issueTypes = await jiraUtils.getProjectIssueTypes(projectKey);
             return issueTypes.map((type: any) => ({
                 id: type.id,
                 name: type.name,
@@ -614,8 +657,9 @@ export class JiraTicketsService implements OnModuleInit {
         return lookup[normalized] || target;
     }
 
-    async transitionIssue(issueKey: string, targetState: string) {
-        const transitions = await this.jiraUtils.jiraGet(`/rest/api/3/issue/${issueKey}/transitions`);
+    async transitionIssue(issueKey: string, targetState: string, organizationId: string) {
+        const jiraUtils = await this.getJiraUtils(organizationId);
+        const transitions = await jiraUtils.jiraGet(`/rest/api/3/issue/${issueKey}/transitions`);
         const desiredName = this.normalizeTransitionTarget(targetState);
         const transition = transitions?.transitions?.find((t: any) => t.name.toLowerCase() === desiredName.toLowerCase());
 
@@ -623,18 +667,19 @@ export class JiraTicketsService implements OnModuleInit {
             throw new Error(`Transition "${desiredName}" not available for issue ${issueKey}`);
         }
 
-        await this.jiraUtils.jiraPost(`/rest/api/3/issue/${issueKey}/transitions`, {
+        await jiraUtils.jiraPost(`/rest/api/3/issue/${issueKey}/transitions`, {
             transition: { id: transition.id }
         });
 
         return { success: true, transition: transition.name };
     }
 
-    async reassignIssue(issueKey: string, accountId: string) {
+    async reassignIssue(issueKey: string, accountId: string, organizationId: string) {
         if (!accountId) {
             throw new Error('accountId is required to reassign an issue');
         }
-        await this.jiraUtils.jiraPut(`/rest/api/3/issue/${issueKey}/assignee`, {
+        const jiraUtils = await this.getJiraUtils(organizationId);
+        await jiraUtils.jiraPut(`/rest/api/3/issue/${issueKey}/assignee`, {
             accountId
         });
         return { success: true };
@@ -642,7 +687,8 @@ export class JiraTicketsService implements OnModuleInit {
 
     async getAllTickets(user: User) {
         try {
-            const data = await this.jiraUtils.getAllIssues("SAG", [
+            const jiraUtils = await this.getJiraUtils(user.organizationId);
+            const data = await jiraUtils.getAllIssues("SAG", [
                 "summary", "description", "assignee", "status", "updated", "created"
             ]);
             return data.issues.map((issue: any) => ({
@@ -667,9 +713,10 @@ export class JiraTicketsService implements OnModuleInit {
         }
     }
 
-    async getUsers() {
+    async getUsers(organizationId: string) {
         try {
-            const response = await this.jiraUtils.jiraGet('/rest/api/3/users/search?query=');
+            const jiraUtils = await this.getJiraUtils(organizationId);
+            const response = await jiraUtils.jiraGet('/rest/api/3/users/search?query=');
             return response.map((user: any) => ({
                 accountId: user.accountId,
                 displayName: user.displayName,

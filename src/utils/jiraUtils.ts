@@ -1,15 +1,29 @@
 import { ConfigService } from '@nestjs/config';
 import FormData from "form-data";
 import fs from "node:fs";
+
+export interface JiraCredentials {
+    jiraUrl: string;
+    jiraUser: string;
+    jiraApiKey: string;
+}
+
 export class JiraUtils {
     private readonly JIRA_USER: string;
     private readonly JIRA_TOKEN: string;
     private readonly JIRA_URL: string;
 
-    constructor(private readonly configService: ConfigService) {
-        this.JIRA_USER = this.configService.get('JIRA_USER') || '';
-        this.JIRA_TOKEN = this.configService.get('JIRA_API_KEY') || '';
-        this.JIRA_URL = this.configService.get('JIRA_URL') || '';
+    constructor(credentials?: JiraCredentials) {
+        if (credentials) {
+            this.JIRA_USER = credentials.jiraUser;
+            this.JIRA_TOKEN = credentials.jiraApiKey;
+            this.JIRA_URL = credentials.jiraUrl;
+        } else {
+            // Fallback to environment variables for backward compatibility
+            this.JIRA_USER = process.env.JIRA_USER || '';
+            this.JIRA_TOKEN = process.env.JIRA_API_KEY || '';
+            this.JIRA_URL = process.env.JIRA_URL || '';
+        }
     }
 
     private authHeader() {

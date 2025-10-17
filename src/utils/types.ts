@@ -1,3 +1,4 @@
+import { Organization } from "src/entities/organization.entity";
 
 // Define types manually until Prisma client is regenerated
 export enum PolicyDocumentType {
@@ -41,6 +42,7 @@ export interface PolicyDocument {
     createdAt: Date;
     updatedAt: Date;
     parentId?: PolicyDocumentParentId;
+    organization: Organization;
 }
 
 export interface PolicyDocumentUploadData {

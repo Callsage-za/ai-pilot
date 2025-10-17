@@ -29,8 +29,20 @@ export class PolicyService {
         // const policy = await tx.policy.upsert({ where: { documentId: id ?? '' }, update: { version }, create: { documentId: id ?? '', version } });
 
     }
-    async getAllPolicyDocuments() {
-        return this.policyDocumentRepository.find();
+    async getAllPolicyDocuments(organizationId?: string) {
+        console.log("getAllPolicyDocuments", organizationId);
+        
+        if (organizationId) {
+            return this.policyDocumentRepository.find({ 
+                where: { organization: { id: organizationId } },
+                relations: ['organization']
+            });
+        }
+        return [];
+    }
+
+    async deletePolicyDocument(id: string) {
+        return this.policyDocumentRepository.delete(id);
     }
     async savePolicyFromLLM(payload: PolicyType) {
         const { document_id, version, sections } = payload;

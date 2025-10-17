@@ -27,8 +27,8 @@ export class ChatService {
         private readonly toolsService: ToolsService) { }
 
 
-    async ask(body: { query: string; conversationId: string; fileNames: string[] }, user: User) {
-        let { query, conversationId, fileNames } = body;
+    async ask(body: { query: string; conversationId: string; fileNames: string[]; selectedTool?: string; toolParams?: any }, user: User) {
+        let { query, conversationId, fileNames, selectedTool, toolParams } = body;
 
         // Process uploaded files if any and get their processed content
         let fileContext = '';
@@ -59,7 +59,6 @@ export class ChatService {
         const conversation = await this.chatMemoryService.ensureConversation(user.id, user.organizationId, conversationId);
 
         const intentAnswer = await this.geminiService.complete(systemPrompt, userMessage(conversation.conversationState, enhancedQuery), history);
-
         let intent: any;
         try {
             intent = JSON.parse(intentAnswer.text?.replace(/^```json\s*|\s*```$/g, "") || "{}");
@@ -74,6 +73,8 @@ export class ChatService {
                 suggested_tool: null,
             };
         }
+        console.log("intent", intent);
+        
         if (fileNames && fileNames.length > 0) {
             intent.intent = "document.upload"
         }
@@ -125,7 +126,16 @@ export class ChatService {
         let answer: any = null;
         let type: string = "general";
         const inferredToolSuggestion = this.inferFallbackToolSuggestion(englishQuery, fileAttachments);
-        const effectiveToolSuggestion = intent?.suggested_tool ?? inferredToolSuggestion;
+        
+        // If a tool is explicitly selected in the body, use that instead of intent suggestions
+        let effectiveToolSuggestion = intent?.suggested_tool ?? inferredToolSuggestion;
+        if (selectedTool) {
+            effectiveToolSuggestion = {
+                name: selectedTool,
+                confidence: 1.0, // High confidence since user explicitly selected it
+                reason: 'User explicitly selected tool'
+            };
+        }
 
         if (!intent?.suggested_tool && inferredToolSuggestion) {
             if (!conversation.conversationState) {
@@ -143,7 +153,13 @@ export class ChatService {
             enhancedQuery,
             fileIds: fileNames,
             attachments: fileAttachments,
+            userId: user.id,
+            organizationId: user.organizationId,
+            selectedTool,
+            toolParams
         });
+        console.log("toolExecution", toolExecution);
+        
         if (toolExecution) {
             answer = {
                 answer: toolExecution.message,
@@ -170,7 +186,7 @@ export class ChatService {
                     });
                     const p = schema.parse({ query });
 
-                    answer = await this.jiraService.ask(p);
+                    answer = await this.jiraService.ask(p, user.organizationId);
                     type = "jira_ticket";
                     break;
                 case "docs.search":
@@ -182,7 +198,7 @@ export class ChatService {
                         throw new HttpException('Query is required', HttpStatus.BAD_REQUEST);
                     }
 
-                    const result = await this.policyDocumentsService.searchDocs(querySearch, size, conversationId, "123456");
+                    const result = await this.policyDocumentsService.searchDocs(querySearch, size, conversationId, "123456", user.organizationId);
                     answer = result;
                     type = "docs.search";
                     break;
@@ -193,7 +209,7 @@ export class ChatService {
                         time_range: intent.slots.time_range || null
                     };
 
-                    answer = await this.callSearchService.searchCalls(callQuery, callFilters);
+                    answer = await this.callSearchService.searchCalls(callQuery, callFilters, user.organizationId);
 
                     type = "call.search";
                     break;
@@ -414,6 +430,10 @@ Focus on being actionable and specific to their context.`;
             enhancedQuery: string;
             fileIds?: string[];
             attachments: any[];
+            userId: string;
+            organizationId: string;
+            selectedTool?: string;
+            toolParams?: any;
         }
     ): Promise<{ tool: ToolActionType; message: string; sources?: any[] } | null> {
         if (!suggestedTool) {
@@ -424,33 +444,40 @@ Focus on being actionable and specific to their context.`;
             return null;
         }
         const confidence = typeof suggestedTool.confidence === 'number' ? suggestedTool.confidence : 0;
-        if (confidence < 0.55) {
+        // If tool is explicitly selected, always execute regardless of confidence
+        if (confidence < 0.55 && !options.selectedTool) {
             return null;
         }
 
         try {
             switch (toolName) {
                 case ToolActionType.TRANSCRIBE_AUDIO: {
-                    if (!options.fileIds?.length || !this.hasAudioAttachment(options.attachments)) {
+                    // Use fileIds from toolParams if provided, otherwise use options.fileIds
+                    const fileIds = options.toolParams?.fileIds || options.fileIds;
+                    if (!fileIds?.length || !this.hasAudioAttachment(options.attachments)) {
                         return null;
                     }
-                    const result = await this.toolsService.transcribeAudio(options.fileIds);
+                    const result = await this.toolsService.transcribeAudio(fileIds, options.conversationId, options.userId);
                     return { tool: toolName, message: result.message, sources: result.sources };
                 }
                 case ToolActionType.SUMMARIZE_CONVERSATION: {
-                    const result = await this.toolsService.summarizeConversation(options.conversationId, options.englishQuery);
+                    const input = options.toolParams?.input || options.englishQuery;
+                    const result = await this.toolsService.summarizeConversation(options.conversationId, input);
                     return { tool: toolName, message: result.message, sources: (result as any).sources || [] };
                 }
                 case ToolActionType.POLICY_AUDIT: {
-                    const result = await this.toolsService.policyAudit(options.enhancedQuery || options.englishQuery, options.conversationId);
+                    const query = options.toolParams?.query || options.enhancedQuery || options.englishQuery;
+                    const result = await this.toolsService.policyAudit(query, options.conversationId, options.userId, options.organizationId);
                     return { tool: toolName, message: result.message, sources: result.sources };
                 }
                 case ToolActionType.BROWSE_POLICIES: {
-                    const result = await this.toolsService.browsePolicies(options.enhancedQuery || options.englishQuery);
+                    const query = options.toolParams?.query || options.enhancedQuery || options.englishQuery;
+                    const result = await this.toolsService.browsePolicies(query, options.userId, options.organizationId);
                     return { tool: toolName, message: result.message, sources: result.sources };
                 }
                 case ToolActionType.CREATE_JIRA: {
-                    const result = await this.toolsService.createJiraIssueFromPrompt(options.englishQuery, options.conversationId);
+                    const input = options.toolParams?.input || options.englishQuery;
+                    const result = await this.toolsService.createJiraIssueFromPrompt(input, options.conversationId);
                     return { tool: toolName, message: result.message, sources: (result as any).sources || [] };
                 }
                 default:

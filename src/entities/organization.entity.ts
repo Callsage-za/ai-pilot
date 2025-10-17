@@ -4,6 +4,7 @@ import { Conversation } from './conversation.entity';
 import { Document } from './document.entity';
 import { AudioFile } from './audio-file.entity';
 import { FileUpload } from './file-upload.entity';
+import { JiraCredentials } from './jira-credentials.entity';
 
 @Entity('organizations')
 export class Organization {
@@ -42,4 +43,7 @@ export class Organization {
 
   @OneToMany(() => FileUpload, fileUpload => fileUpload.organization)
   fileUploads: FileUpload[];
+
+  @OneToMany(() => JiraCredentials, jiraCredentials => jiraCredentials.organization)
+  jiraCredentials: JiraCredentials[];
 }
