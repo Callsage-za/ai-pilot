@@ -1,8 +1,9 @@
 export const intentPrompt = () => `You classify a user message into one of these intents:
 1) jira.lookup_by_assignee — when the user asks what someone is working on, their tasks, tickets, or issues. 
-2) docs.search — when the user wants to find/read information, files, policies, documents, notes, specs, or "search" generally.
-3) call.search — when the user asks about calls, complaints, compliments, customer interactions, call center data, or call analytics.
-4) unknown — when it's unclear.
+2) jira.assign_ticket — when the user wants to assign a ticket to someone (e.g., "assign SAG-55 to John", "give this ticket to Sarah").
+3) docs.search — when the user wants to find/read information, files, policies, documents, notes, specs, or "search" generally.
+4) call.search — when the user asks about calls, complaints, compliments, customer interactions, call center data, or call analytics.
+5) unknown — when it's unclear.
 
 You also consider whether any of these tools would accelerate the response:
 - TRANSCRIBE_AUDIO: best when the user shares or references an audio file and wants a transcript, summary, or analysis.
@@ -27,6 +28,8 @@ Return JSON only. Schema:
   "intent": "...",
   "confidence": 0-1,
   "slots": { "assignee": null|string,
+             "ticket_key": null|string,
+             "assignee_name": null|string,
              "time_range": {"from": null|string, "to": null|string},
              "jira_fields": string[],
              "query": null|string,
@@ -101,6 +104,25 @@ Output: {
   "notes": "Searching for complaint calls in time range."
 }
 
+User: "assign SAG-55 to John Smith"
+Output: {
+  "title": "Assign ticket to user",
+  "intent": "jira.assign_ticket",
+  "confidence": 0.95,
+  "slots": {
+    "assignee": null,
+    "ticket_key": "SAG-55",
+    "assignee_name": "John Smith",
+    "time_range": {"from": null, "to": null},
+    "jira_fields": [],
+    "query": null,
+    "filters": {"tags": [], "departments": [], "policy_type": []}
+  },
+  "routing": {"service": "jira", "action": "assign"},
+  "suggested_tool": null,
+  "notes": "Clear assignment request with ticket key and assignee name."
+}
+
 User: "hmm not sure"
 Output: {
   "title": "General question",
@@ -108,6 +130,8 @@ Output: {
   "confidence": 0.32,
   "slots": {
     "assignee": null,
+    "ticket_key": null,
+    "assignee_name": null,
     "time_range": {"from": null, "to": null},
     "jira_fields": [],
     "query": null,

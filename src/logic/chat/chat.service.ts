@@ -156,7 +156,8 @@ export class ChatService {
             userId: user.id,
             organizationId: user.organizationId,
             selectedTool,
-            toolParams
+            toolParams,
+            user
         });
         console.log("toolExecution", toolExecution);
         
@@ -188,6 +189,21 @@ export class ChatService {
 
                     answer = await this.jiraService.ask(p, user.organizationId);
                     type = "jira_ticket";
+                    break;
+                case "jira.assign_ticket":
+                    const ticketKey = intent.slots.ticket_key;
+                    const assigneeName = intent.slots.assignee_name;
+                    
+                    if (!ticketKey || !assigneeName) {
+                        answer = {
+                            answer: "❌ Please provide both ticket key and assignee name for assignment (e.g., 'assign SAG-55 to John Smith')",
+                            success: false
+                        };
+                        type = "jira_assignment";
+                    } else {
+                        answer = await this.jiraService.assignTicketFromChat(ticketKey, assigneeName, user.organizationId);
+                        type = "jira_assignment";
+                    }
                     break;
                 case "docs.search":
 
@@ -434,6 +450,7 @@ Focus on being actionable and specific to their context.`;
             organizationId: string;
             selectedTool?: string;
             toolParams?: any;
+            user?: User;
         }
     ): Promise<{ tool: ToolActionType; message: string; sources?: any[] } | null> {
         if (!suggestedTool) {
@@ -477,7 +494,7 @@ Focus on being actionable and specific to their context.`;
                 }
                 case ToolActionType.CREATE_JIRA: {
                     const input = options.toolParams?.input || options.englishQuery;
-                    const result = await this.toolsService.createJiraIssueFromPrompt(input, options.conversationId);
+                    const result = await this.toolsService.createJiraIssueFromPrompt(input, options.conversationId, options.user);
                     return { tool: toolName, message: result.message, sources: (result as any).sources || [] };
                 }
                 default:

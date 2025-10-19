@@ -182,6 +182,8 @@ Return a concise markdown summary with sections for **Overview**, **Key Points**
   }
 
   async createJiraIssueFromPrompt(input: string, conversationId?: string, user?: any) {
+    console.log('user ', user);
+    
     if (!input?.trim()) {
       throw new BadRequestException('Describe the issue that should become a Jira ticket');
     }

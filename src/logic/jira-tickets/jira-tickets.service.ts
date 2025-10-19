@@ -49,6 +49,8 @@ export class JiraTicketsService implements OnModuleInit {
     }
 
     private async getJiraUtils(organizationId: string): Promise<JiraUtils> {
+    console.log('organizationId', organizationId);
+        
         const credentials = await this.jiraCredentialsService.getCredentials(organizationId);
         if (!credentials) {
             throw new Error('Jira credentials not found for this organization');
@@ -725,6 +727,43 @@ export class JiraTicketsService implements OnModuleInit {
         } catch (error) {
             console.error('Error fetching Jira users:', error);
             throw new Error('Failed to fetch Jira users');
+        }
+    }
+
+    async assignTicketFromChat(ticketKey: string, assigneeName: string, organizationId: string) {
+        try {
+            // First, get all users to find the assignee
+            const users = await this.getUsers(organizationId);
+            
+            // Try to find user by display name (case insensitive)
+            const assignee = users.find(user => 
+                user.displayName.toLowerCase().includes(assigneeName.toLowerCase()) ||
+                assigneeName.toLowerCase().includes(user.displayName.toLowerCase())
+            );
+
+            if (!assignee) {
+                throw new Error(`User "${assigneeName}" not found. Available users: ${users.map(u => u.displayName).join(', ')}`);
+            }
+
+            // Assign the ticket
+            await this.reassignIssue(ticketKey, assignee.accountId, organizationId);
+            
+            return {
+                answer: `✅ Successfully assigned ticket ${ticketKey} to ${assignee.displayName}`,
+                success: true,
+                message: `Successfully assigned ticket ${ticketKey} to ${assignee.displayName}`,
+                assignee: {
+                    accountId: assignee.accountId,
+                    displayName: assignee.displayName
+                }
+            };
+        } catch (error) {
+            console.error('Error assigning ticket from chat:', error);
+            return {
+                answer: `❌ Failed to assign ticket: ${error.message}`,
+                success: false,
+                error: error.message
+            };
         }
     }
 }
