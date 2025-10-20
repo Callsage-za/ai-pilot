@@ -19,8 +19,6 @@ export class CallMemoryService {
 
     }
     async saveCall(call: Call, userId: string, organizationId: string) {
-        console.log(userId, organizationId);
-        
         const audioFileData: Partial<AudioFile> = {
             path: call.path,
             transcript: call.transcript,

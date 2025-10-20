@@ -5,7 +5,7 @@ import { GeminiService } from '../gemini/gemini.service';
 import { InfoSource as InfoSourceType } from '../../utils/types';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Conversation, Message, InfoSource } from 'src/entities';
+import { Conversation, Message, InfoSource, MessageAttachments } from 'src/entities';
 
 @Injectable()
 export class ChatMemoryService {
@@ -21,60 +21,29 @@ export class ChatMemoryService {
     private readonly messageRepository: Repository<Message>,
     @InjectRepository(InfoSource)
     private readonly infoSourceRepository: Repository<InfoSource>,
+    @InjectRepository(MessageAttachments)
+    private readonly messageAttachmentsRepository: Repository<MessageAttachments>,
   ) { }
 
   async ensureConversation(userId: string, organizationId: string, conversationId?: string) {
     if (conversationId) {
-      const c = await this.conversationRepository.findOne({ 
-        where: { 
+      const c = await this.conversationRepository.findOne({
+        where: {
           id: conversationId,
           userId,
-          organizationId 
-        } 
+          organizationId
+        }
       });
       if (c) return c;
     }
     return this.conversationRepository.save({ userId, organizationId, title: '' });
   }
 
-  async addMessage(conversationId: string, role: Role, content: string, type: string, source: InfoSourceType[] = [], attachments: any[] = []) {
-    const messageData: any = {
-      conversationId,
-      role,
-      content,
-      type
-    };
-
-    // Add attachments if provided
-    if (attachments && attachments.length > 0) {
-      messageData.attachments = attachments;
-    }
-
-    // Save the message first
-    const message = await this.messageRepository.save(messageData);
-
-    // Handle source relationships separately if provided
-    if (source && source.length > 0) {
-      const sourceEntities = source.map(s => ({
-        messageId: message.id,
-        type: s.type || 'unknown',
-        title: s.title || s.snippet || "unknown",
-        snippet: s.snippet || s.title || "unknown",
-        score: s.score,
-        confidence: s.confidence,
-        key: s.key,
-      }));
-
-      // Save sources using the InfoSource repository
-      await this.infoSourceRepository.save(sourceEntities);
-    }
-
-    return message;
-  }
 
   async addMessageWithLanguage(messageData: any) {
     // Extract source from messageData
-    const { source, ...messageFields } = messageData;
+    const { source, attachments, ...messageFields } = messageData;
+    console.log('attachments', attachments);
 
     // Save the message first
     const message = await this.messageRepository.save(messageFields);
@@ -90,15 +59,43 @@ export class ChatMemoryService {
         confidence: s.confidence,
         key: s.key
       }));
-
+      console.log('attachments', attachments);
+      if (attachments && attachments.length > 0) {
+        for (const attachment of attachments) {
+          if (attachment.mimeType.startsWith('audio/')) {
+            const messageAttachment = await this.messageAttachmentsRepository.save({
+              messageId: message.id,
+              type: 'audio',
+              name: attachment.originalName,
+              path: attachment.path
+            });
+          }
+          // await this.fileUploadService.saveFileUpload(attachment, message.id);
+        }
+      }
       // Save sources using the InfoSource repository
       await this.infoSourceRepository.save(sourceEntities);
     }
 
+    if (attachments && attachments.length > 0) {
+      for (const attachment of attachments) {
+        console.log('attachment', attachment);
+        if (attachment.mimeType.startsWith('audio/')) {
+          await this.messageAttachmentsRepository.save({
+            messageId: message.id,
+            type: 'audio',
+            name: attachment.originalName,
+            path: attachment.externalPath,
+            mimeType: attachment.mimeType,
+          });
+        }
+      }
+    }
     return this.messageRepository.findOne({
       where: { id: message.id },
       relations: {
-        source: true
+        source: true,
+        messageAttachments: true
       }
     });
   }
@@ -109,11 +106,21 @@ export class ChatMemoryService {
       where: { conversationId },
       order: { ts: 'asc' },        // important: chronological for LLMs
       relations: {
-        source: true
+        source: true,
+        messageAttachments: true
       }
     });
     const tail = msgs.slice(Math.max(0, msgs.length - limit));
-    return tail.map(m => ({ role: m.role as Role, content: m.content, ts: m.ts.getTime(), source: m.source }));
+    return tail.map(m => ({
+      role: m.role as Role,
+      content: m.content,
+      ts: m.ts.getTime(),
+      source: m.source,
+      attachments: m.attachments,
+      messageAttachments: m.messageAttachments,
+      id: m.id,
+      type: m.type
+    }));
   }
 
   async getSummary(conversationId: string) {

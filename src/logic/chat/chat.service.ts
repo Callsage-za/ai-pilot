@@ -338,7 +338,7 @@ Focus on being actionable and specific to their context.`;
             type,
             source: answer.sources
         };
-
+ 
         console.log(`✅ Final response in ${originalLanguage !== 'en' ? originalLanguage : 'English'}: "${assistantMessageData.content}"`);
         const assistantMessage = await this.chatMemoryService.addMessageWithLanguage(assistantMessageData);
 
@@ -549,7 +549,6 @@ Focus on being actionable and specific to their context.`;
         const fs = require('fs');
         const path = require('path');
         const tempPath = `/tmp/${fileUpload.id}_${fileUpload.originalName}`;
-        console.log(fileUpload.user);
         
         try {
             // Copy file to temp location for processing

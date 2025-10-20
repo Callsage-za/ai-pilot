@@ -30,8 +30,6 @@ export class PolicyService {
 
     }
     async getAllPolicyDocuments(organizationId?: string) {
-        console.log("getAllPolicyDocuments", organizationId);
-        
         if (organizationId) {
             return this.policyDocumentRepository.find({ 
                 where: { organization: { id: organizationId } },

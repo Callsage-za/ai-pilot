@@ -73,7 +73,6 @@ export class AuthService {
     let organization = await this.organizationRepository.findOne({
       where: { name: registerDto.organizationName },
     });
-    console.log("organization", organization);
     
 
     if (!organization) {
@@ -82,7 +81,6 @@ export class AuthService {
         description: registerDto.organizationDescription,
         domain: registerDto.organizationDomain,
       });
-      console.log("organization created", organization);
       
     }
 

@@ -104,7 +104,7 @@ export class ToolsService {
         source: sources
       };
 
-      await this.chatMemoryService.addMessageWithLanguage(assistantMessageData);
+      // await this.chatMemoryService.addMessageWithLanguage(assistantMessageData);
     }
 
     return {

@@ -2,6 +2,7 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, On
 import { Conversation } from './conversation.entity';
 import { InfoSource } from './info-source.entity';
 import { User } from './user.entity';
+import { MessageAttachments } from './message.attachments.entity';
 
 @Entity('messages')
 export class Message {
@@ -45,4 +46,6 @@ export class Message {
 
   @OneToMany(() => InfoSource, infoSource => infoSource.message)
   source: InfoSource[];
+  @OneToMany(() => MessageAttachments, messageAttachment => messageAttachment.message)
+  messageAttachments: MessageAttachments[];
 }

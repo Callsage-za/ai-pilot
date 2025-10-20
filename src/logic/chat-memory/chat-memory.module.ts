@@ -4,12 +4,12 @@ import { GeminiModule } from '../gemini/gemini.module';
 import { PolicyService } from './policy.service';
 import { CallMemoryService } from './call-memory.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Conversation, Message, Policy, PolicySection, PolicyDocument, AudioFile, AudioEntities, AudioEvidence, InfoSource } from 'src/entities';
+import { Conversation, Message, Policy, PolicySection, PolicyDocument, AudioFile, AudioEntities, AudioEvidence, InfoSource, MessageAttachments } from 'src/entities';
 
 @Module({
     imports: [
         GeminiModule,
-        TypeOrmModule.forFeature([Conversation, Message, Policy, PolicySection, PolicyDocument, AudioFile, AudioEntities, AudioEvidence, InfoSource])
+        TypeOrmModule.forFeature([Conversation, Message, Policy, PolicySection, PolicyDocument, AudioFile, AudioEntities, AudioEvidence, InfoSource, MessageAttachments])
     ],
     exports: [ChatMemoryService, PolicyService, CallMemoryService],
     providers: [ChatMemoryService, PolicyService, CallMemoryService],

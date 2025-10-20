@@ -4,6 +4,10 @@ export interface ChatMessage {
   role: Role;
   content: string;
   ts: number;
+  source?: any[];
+  attachments?: any[];
+  id?: string;
+  type?: string;
 }
 
 export interface ConversationState {
