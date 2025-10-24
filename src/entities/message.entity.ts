@@ -17,10 +17,10 @@ export class Message {
   @Column('text')
   content: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true,type: 'text' })
   originalContent: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true,type: 'text' })
   originalLanguage: string;
 
   @Column({ nullable: true })
