@@ -2,16 +2,35 @@ import { Controller, Get, Post, Put, Body, Param, UseGuards, Request } from '@ne
 import { JiraTicketsService } from './jira-tickets.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { User } from '../../entities/user.entity';
+import { Public } from '../auth/decorators/public.decorator';
 
 @Controller('jira-tickets')
 @UseGuards(JwtAuthGuard)
 export class JiraTicketsController {
-  constructor(private readonly jiraTicketsService: JiraTicketsService) {}
+  constructor(private readonly jiraTicketsService: JiraTicketsService) { }
 
   @Get('projects')
   async getProjects(@Request() req: { user: User }) {
     return await this.jiraTicketsService.getProjects(req.user.organizationId);
   }
+  @Public()
+  @Post('jira-update')
+  async jiraUpdate(@Body() body: any) {
+
+    // Handle different webhook events
+    if (body.webhookEvent === 'jira:issue_deleted') {
+      console.log("Issue deleted event received");
+      await this.jiraTicketsService.handleJiraIssueDeletion(body.issue);
+    } else if (body.webhookEvent === 'jira:issue_updated' || body.webhookEvent === 'jira:issue_created') {
+      console.log("Issue updated/created event received");
+      await this.jiraTicketsService.handleJiraIssue(body.issue, body.key);
+    } else {
+      console.log("Unknown webhook event:", body.webhookEvent);
+    }
+
+    return { message: "OK" };
+  }
+
   @Get('users')
   async getUsers(@Request() req: { user: User }) {
     return await this.jiraTicketsService.getUsers(req.user.organizationId);
